@@ -118,7 +118,7 @@ export function defaultSave(): SaveData {
     masterhandUseCount: 0,
     masterhandIdleCounter: 0,
     equipment: emptyEquipment(),
-    lastVisitedAt: Date.now(),
+    lastVisitedAt: 0,
     prestige: 0,
     progress: emptyProgress(),
     bestByJob: emptyBestByJob(),
