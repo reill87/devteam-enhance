@@ -98,12 +98,14 @@ GRANT SELECT ON public.game_leaderboard TO anon, authenticated;
 -- updated_at 자동 갱신 트리거
 -- =============================================================
 CREATE OR REPLACE FUNCTION public.set_updated_at()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $function$
 BEGIN
   NEW.updated_at = NOW();
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$function$;
 
 DROP TRIGGER IF EXISTS trg_game_users_updated_at ON public.game_users;
 CREATE TRIGGER trg_game_users_updated_at

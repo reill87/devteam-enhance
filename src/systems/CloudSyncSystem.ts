@@ -2,16 +2,16 @@ import { supabase, isSupabaseEnabled } from '../lib/supabase';
 import { type SaveData } from './SaveSystem';
 
 /**
- * 클라우드 동기화 시스템.
- * - Supabase 익명 인증으로 user_id 확보
+ * 클라우드 동기화 시스템 (이메일+비밀번호 인증).
+ * - 로그인하지 않으면 모든 클라우드 함수는 no-op (로컬 모드)
  * - SaveData를 game_saves.data (JSONB)에 통째로 저장
- * - bestByJob, prestige는 비정규화 컬럼으로도 저장 (리더보드 인덱스용)
- *
- * Supabase 미설정 시 자동으로 no-op (로컬만 동작).
+ * - bestByJob, prestige는 비정규화 컬럼으로 저장 (리더보드 인덱스용)
  */
 
 let cachedUserId: string | null = null;
 let savePromise: Promise<void> | null = null;
+
+export type AuthResult = { ok: boolean; reason?: string };
 
 export type LeaderboardRow = {
   user_id: string;
@@ -26,33 +26,103 @@ export type LeaderboardRow = {
 };
 
 /**
- * 익명 인증해서 user_id를 확보. 이미 인증된 세션이 있으면 그대로 사용.
+ * 현재 활성 세션의 user_id (없으면 null).
  */
-export async function ensureAnonymousUser(): Promise<string | null> {
+export async function getSessionUserId(): Promise<string | null> {
   if (!isSupabaseEnabled() || !supabase) return null;
   if (cachedUserId) return cachedUserId;
-
-  const { data: sessionData } = await supabase.auth.getSession();
-  if (sessionData.session?.user) {
-    cachedUserId = sessionData.session.user.id;
-    return cachedUserId;
-  }
-
-  const { data, error } = await supabase.auth.signInAnonymously();
-  if (error) {
-    console.warn('[cloud] anonymous sign-in failed', error.message);
-    return null;
-  }
-  cachedUserId = data.user?.id ?? null;
+  const { data } = await supabase.auth.getSession();
+  cachedUserId = data.session?.user.id ?? null;
   return cachedUserId;
 }
 
+export function isLoggedIn(): boolean {
+  return cachedUserId !== null;
+}
+
 /**
- * 닉네임이 등록되어 있는지 확인. 없으면 null.
+ * 회원가입 + 자동 로그인 + 닉네임 등록 (game_users insert).
+ */
+export async function signUpWithEmail(
+  email: string,
+  password: string,
+  nickname: string,
+): Promise<AuthResult> {
+  if (!isSupabaseEnabled() || !supabase) {
+    return { ok: false, reason: 'Supabase 환경변수(.env) 미설정' };
+  }
+  const trimmedNick = nickname.trim().slice(0, 20);
+  if (!trimmedNick) return { ok: false, reason: '닉네임을 입력해주세요.' };
+  if (password.length < 6) return { ok: false, reason: '비밀번호는 최소 6자입니다.' };
+
+  const { data, error } = await supabase.auth.signUp({
+    email: email.trim(),
+    password,
+  });
+  if (error) {
+    console.warn('[cloud] sign up failed', error);
+    return { ok: false, reason: error.message };
+  }
+  const userId = data.user?.id;
+  if (!userId) {
+    return { ok: false, reason: '가입 후 사용자 ID를 받지 못했습니다. 이메일 인증이 필요한 환경이라면 메일 확인 후 다시 시도하세요.' };
+  }
+  cachedUserId = userId;
+
+  // 닉네임 즉시 등록
+  const { error: nickError } = await supabase
+    .from('game_users')
+    .upsert({ id: userId, nickname: trimmedNick }, { onConflict: 'id' });
+  if (nickError) {
+    console.warn('[cloud] nickname insert after signup failed', nickError);
+    // 가입은 성공했지만 닉네임 저장 실패. 사용자가 다시 시도 가능.
+    return { ok: true, reason: `가입은 성공했으나 닉네임 저장 실패: ${nickError.message}` };
+  }
+  return { ok: true };
+}
+
+/**
+ * 이메일+비밀번호 로그인.
+ */
+export async function signInWithEmail(
+  email: string,
+  password: string,
+): Promise<AuthResult> {
+  if (!isSupabaseEnabled() || !supabase) {
+    return { ok: false, reason: 'Supabase 환경변수(.env) 미설정' };
+  }
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password,
+  });
+  if (error) {
+    console.warn('[cloud] sign in failed', error);
+    return { ok: false, reason: error.message };
+  }
+  cachedUserId = data.user?.id ?? null;
+  return { ok: true };
+}
+
+/**
+ * 로그아웃.
+ */
+export async function signOut(): Promise<AuthResult> {
+  if (!isSupabaseEnabled() || !supabase) return { ok: true };
+  const { error } = await supabase.auth.signOut();
+  cachedUserId = null;
+  if (error) {
+    console.warn('[cloud] sign out failed', error);
+    return { ok: false, reason: error.message };
+  }
+  return { ok: true };
+}
+
+/**
+ * 현재 사용자의 닉네임 조회.
  */
 export async function fetchOwnNickname(): Promise<string | null> {
   if (!isSupabaseEnabled() || !supabase) return null;
-  const userId = await ensureAnonymousUser();
+  const userId = await getSessionUserId();
   if (!userId) return null;
 
   const { data, error } = await supabase
@@ -68,35 +138,36 @@ export async function fetchOwnNickname(): Promise<string | null> {
 }
 
 /**
- * 닉네임 등록 또는 변경. game_users 행을 upsert.
+ * 닉네임 변경.
  */
-export async function setNickname(nickname: string): Promise<boolean> {
-  if (!isSupabaseEnabled() || !supabase) return false;
-  const userId = await ensureAnonymousUser();
-  if (!userId) return false;
+export async function setNickname(
+  nickname: string,
+): Promise<AuthResult> {
+  if (!isSupabaseEnabled() || !supabase) {
+    return { ok: false, reason: 'Supabase 환경변수(.env) 미설정' };
+  }
+  const userId = await getSessionUserId();
+  if (!userId) return { ok: false, reason: '로그인이 필요합니다.' };
 
   const trimmed = nickname.trim().slice(0, 20);
-  if (!trimmed) return false;
+  if (!trimmed) return { ok: false, reason: '닉네임을 입력해주세요.' };
 
   const { error } = await supabase
     .from('game_users')
-    .upsert(
-      { id: userId, nickname: trimmed },
-      { onConflict: 'id' },
-    );
+    .upsert({ id: userId, nickname: trimmed }, { onConflict: 'id' });
   if (error) {
-    console.warn('[cloud] set nickname failed', error.message);
-    return false;
+    console.warn('[cloud] set nickname failed', error);
+    return { ok: false, reason: `DB 오류: ${error.message}` };
   }
-  return true;
+  return { ok: true };
 }
 
 /**
- * 클라우드에서 SaveData 로드. 없으면 null.
+ * 클라우드에서 SaveData 로드. 로그인 안 했거나 데이터 없으면 null.
  */
 export async function loadCloudSave(): Promise<{ data: SaveData; updatedAt: string } | null> {
   if (!isSupabaseEnabled() || !supabase) return null;
-  const userId = await ensureAnonymousUser();
+  const userId = await getSessionUserId();
   if (!userId) return null;
 
   const { data, error } = await supabase
@@ -113,14 +184,13 @@ export async function loadCloudSave(): Promise<{ data: SaveData; updatedAt: stri
 }
 
 /**
- * SaveData를 클라우드에 업로드 (debounced 호출 권장).
+ * SaveData를 클라우드에 push (debounced 호출 권장).
  */
 export async function pushCloudSave(save: SaveData): Promise<boolean> {
   if (!isSupabaseEnabled() || !supabase) return false;
-  const userId = await ensureAnonymousUser();
+  const userId = await getSessionUserId();
   if (!userId) return false;
 
-  // 동시 호출 방지: 진행 중인 push가 있으면 그게 끝나면 다시 시도하는 형태로 단순화
   if (savePromise) await savePromise;
 
   savePromise = (async () => {
@@ -147,7 +217,7 @@ export async function pushCloudSave(save: SaveData): Promise<boolean> {
 }
 
 /**
- * 리더보드 상위 N명 (정렬 키: best_overall 또는 prestige).
+ * 리더보드 상위 N명.
  */
 export type LeaderboardSort = 'best_overall' | 'prestige' | 'best_developer' | 'best_planner' | 'best_designer';
 

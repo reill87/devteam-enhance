@@ -14,7 +14,7 @@
 - **타이밍 게이지** — 강화 빌드업 중 탭으로 +%p 보너스
 - **콤보 시스템** — 연속 성공 시 다음 강화 +%p
 - **랜덤 이벤트** — 긴급 장애 알림, 출근 RNG 잭팟 (야근/성과급/스톡옵션)
-- **클라우드 세이브** — Supabase 익명 인증, 다른 기기에서 이어서
+- **클라우드 세이브** — Supabase 이메일 계정 인증, 다른 기기에서 진행 이어서
 - **리더보드** — 직군별/종합/명성치 정렬
 
 ## 로컬 개발
@@ -35,9 +35,8 @@ npm run dev
 `docs/supabase-schema.sql`을 stockontext와 같은 Supabase 프로젝트의 SQL Editor에서 실행:
 
 1. Supabase 대시보드 → SQL Editor
-2. `docs/supabase-schema.sql` 내용 붙여넣기
-3. Run
-4. Authentication → Providers에서 **Anonymous Sign-Ins** 활성화
+2. `docs/supabase-schema.sql` 내용 통째로 붙여넣고 **Run**
+3. (선택) Authentication → Providers → **Email** 설정에서 **Confirm email** 옵션 OFF로 두면 가입 즉시 로그인됨 (이메일 인증 SKIP)
 
 ### 2. GitHub 레포지토리 생성
 

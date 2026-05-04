@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH } from '../config';
 import { isSupabaseEnabled } from '../lib/supabase';
-import { ensureAnonymousUser, loadCloudSave } from '../systems/CloudSyncSystem';
+import { getSessionUserId, loadCloudSave } from '../systems/CloudSyncSystem';
 import { loadSave, persistSave } from '../systems/SaveSystem';
 
 export class BootScene extends Phaser.Scene {
@@ -12,7 +12,6 @@ export class BootScene extends Phaser.Scene {
   preload(): void {}
 
   create(): void {
-    // 로딩 텍스트
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT / 2;
     const loadingText = this.add
@@ -24,13 +23,12 @@ export class BootScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     if (!isSupabaseEnabled()) {
-      // 로컬 모드: 즉시 메뉴
       loadingText.destroy();
       this.scene.start('Menu');
       return;
     }
 
-    // 클라우드 동기화: cloud > local이면 cloud 채택
+    // 로그인된 세션이 있으면 클라우드 세이브 비교 후 채택
     this.bootstrap()
       .catch((err) => console.warn('[boot] cloud sync failed', err))
       .finally(() => {
@@ -40,7 +38,9 @@ export class BootScene extends Phaser.Scene {
   }
 
   private async bootstrap(): Promise<void> {
-    await ensureAnonymousUser();
+    const userId = await getSessionUserId();
+    if (!userId) return; // 로그인 안 됨 → 로컬 모드
+
     const cloud = await loadCloudSave();
     if (!cloud) return;
 
@@ -48,7 +48,6 @@ export class BootScene extends Phaser.Scene {
     const localTime = local.lastVisitedAt ?? 0;
     const cloudTime = new Date(cloud.updatedAt).getTime();
     if (cloudTime > localTime) {
-      // 클라우드가 더 최신 — 로컬에 덮어쓰기
       persistSave(cloud.data);
       console.log('[boot] cloud save adopted', { cloudTime, localTime });
     }
