@@ -6,6 +6,9 @@ import {
   rewardFor,
   REGEN_INTERVAL_MS,
   regenAmount,
+  DEVELOPER_COMBO_DEADLINE_MS,
+  DEVELOPER_COMBO_BONUS_PER,
+  DEVELOPER_COMBO_BONUS_CAP,
 } from '../data/rates';
 import {
   INCOMES,
@@ -41,6 +44,28 @@ import {
   equipCostFor,
   equipSuccessRate,
 } from '../systems/EquipmentSystem';
+import {
+  PLANNER_SLOT_COUNT,
+  plannerSlotCost,
+  plannerSlotDurationMs,
+  plannerSlotState,
+} from '../data/planner';
+import {
+  DESIGNER_ROUND_COUNT,
+  DESIGNER_ROUND_INTERVAL_MS,
+  DESIGNER_ROUND_LABELS,
+  designerPerRoundRate,
+} from '../data/designer';
+import { failPenaltyFor, checkSynergyGate } from '../data/rates';
+import { COLORS, hex } from '../data/theme';
+import {
+  makePanel,
+  applyShadow,
+  applyGlow,
+  spawnRotatingRing,
+  makeHalo,
+  spawnIdleParticles,
+} from '../lib/ui-helpers';
 
 type SceneInit = { jobKey?: JobKey };
 
@@ -74,6 +99,11 @@ export class GameScene extends Phaser.Scene {
   private salaryText!: Phaser.GameObjects.Text;
   private regenTimer?: Phaser.Time.TimerEvent;
   private characterShape!: Phaser.GameObjects.Arc;
+  private charHalo!: Phaser.GameObjects.Arc;
+  private charHaloOuter!: Phaser.GameObjects.Arc;
+  private ringContainer!: Phaser.GameObjects.Container;
+  private ringTween!: Phaser.Tweens.Tween;
+  private idleParticleTimer?: Phaser.Time.TimerEvent;
 
   // 강화 버튼
   private enhanceBtn!: Phaser.GameObjects.Container;
@@ -100,6 +130,16 @@ export class GameScene extends Phaser.Scene {
     levelText: Phaser.GameObjects.Text;
   }>> = {};
 
+  // 기획자 병렬 슬롯 UI (Phase 1B)
+  private plannerSlotUI: Array<{
+    container: Phaser.GameObjects.Container;
+    bg: Phaser.GameObjects.Rectangle;
+    label: Phaser.GameObjects.Text;
+    sub: Phaser.GameObjects.Text;
+    gauge: Phaser.GameObjects.Rectangle;
+    gaugeMaxWidth: number;
+  }> = [];
+
   // 콤보 / 타이밍 게이지 / 긴급 알림
   private comboText!: Phaser.GameObjects.Text;
   private teamSynergyText!: Phaser.GameObjects.Text;
@@ -111,9 +151,10 @@ export class GameScene extends Phaser.Scene {
   private emergencyActive = false;
   private emergencyObjs: Phaser.GameObjects.GameObject[] = [];
 
-  // 인벤 슬롯
+  // 인벤 슬롯 (아이콘은 SVG 이미지 또는 이모지 텍스트 fallback)
   private slotByKey: Partial<Record<ItemKey, {
     bg: Phaser.GameObjects.Rectangle;
+    icon: Phaser.GameObjects.Image | Phaser.GameObjects.Text;
     countText: Phaser.GameObjects.Text;
   }>> = {};
 
@@ -180,13 +221,14 @@ export class GameScene extends Phaser.Scene {
     this.titleText = this.add
       .text(cx, 250, titleFor(this.jobKey, this.level), {
         fontFamily: 'Pretendard, sans-serif',
-        fontSize: '44px',
+        fontSize: '48px',
         color: '#ffffff',
         fontStyle: 'bold',
         align: 'center',
         wordWrap: { width: GAME_WIDTH - 60 },
       })
       .setOrigin(0.5);
+    applyShadow(this.titleText, 4, 6);
 
     this.salaryText = this.add
       .text(cx, 305, '', {
@@ -198,49 +240,98 @@ export class GameScene extends Phaser.Scene {
 
     this.charBaseX = cx;
     this.charBaseY = 480;
+
+    // === 캐릭터 영역 강화: 후광 + 회전 링 + idle 파티클 ===
+    // 후광 (캐릭터 뒤, 직군 색상으로 흐릿하게)
+    this.charHalo = makeHalo(this, this.charBaseX, this.charBaseY, 220, def.color, 0.16);
+    this.charHalo.setDepth(-2);
+    // 더 큰 outer halo (이중 후광)
+    this.charHaloOuter = makeHalo(this, this.charBaseX, this.charBaseY, 280, def.color, 0.07);
+    this.charHaloOuter.setDepth(-3);
+    // 회전 링 (점선 16개, 골드, 18초 한 바퀴)
+    const ring = spawnRotatingRing(
+      this,
+      this.charBaseX,
+      this.charBaseY,
+      170,
+      16,
+      3.5,
+      COLORS.gold,
+      0.45,
+      18000,
+    );
+    this.ringContainer = ring.container;
+    this.ringTween = ring.tween;
+    this.charHalo.setDepth(-2);
+
     this.characterShape = this.add.circle(this.charBaseX, this.charBaseY, 130, def.color);
     this.characterShape.setStrokeStyle(6, 0xffffff, 0.4);
 
     // 캐릭터 좌측에 장비 슬롯 3개 (세로 배치)
     this.buildEquipSlots(80, [410, 480, 550]);
-    // 캐릭터 우측에 콤보 텍스트
+
+    // 캐릭터 우측 — 콤보 카드 (작게)
+    makePanel(this, GAME_WIDTH - 80, 480, 110, 110, {
+      fill: COLORS.bgPanel,
+      fillAlpha: 0.9,
+      border: COLORS.orange,
+      borderAlpha: 0.4,
+      radius: 12,
+    });
     this.comboText = this.add
       .text(GAME_WIDTH - 80, 480, '', {
         fontFamily: 'Pretendard, sans-serif',
         fontSize: '22px',
-        color: '#ff8c42',
+        color: hex(COLORS.orange),
         align: 'center',
         fontStyle: 'bold',
       })
       .setOrigin(0.5);
-    // 팀 시너지 텍스트 (콤보 텍스트 아래)
+
+    // 캐릭터 우측 — 팀 시너지 카드 (콤보 아래)
+    makePanel(this, GAME_WIDTH - 80, 605, 130, 90, {
+      fill: COLORS.bgPanel,
+      fillAlpha: 0.9,
+      border: COLORS.success,
+      borderAlpha: 0.35,
+      radius: 12,
+    });
     this.teamSynergyText = this.add
-      .text(GAME_WIDTH - 80, 600, '', {
+      .text(GAME_WIDTH - 80, 605, '', {
         fontFamily: 'Pretendard, sans-serif',
-        fontSize: '14px',
-        color: '#9af0a8',
+        fontSize: '13px',
+        color: hex(COLORS.successGlow),
         align: 'center',
+        lineSpacing: 2,
       })
       .setOrigin(0.5);
 
     this.levelText = this.add
       .text(this.charBaseX, this.charBaseY, String(this.level), {
         fontFamily: 'Pretendard, sans-serif',
-        fontSize: '110px',
+        fontSize: '128px',
         color: '#0e0e12',
         fontStyle: 'bold',
+        stroke: '#ffffff',
+        strokeThickness: 2,
       })
       .setOrigin(0.5);
+    applyGlow(this.levelText, COLORS.gold, 18);
 
-    // 결과 메시지 박스 (캐릭터 바로 아래, 별도 패널로 분리)
-    this.add
-      .rectangle(cx, 705, 640, 80, 0x000000, 0.45)
-      .setStrokeStyle(1, 0xffffff, 0.12);
+    // 결과 메시지 박스 (카드형 패널)
+    makePanel(this, cx, 705, 640, 84, {
+      fill: COLORS.bgPanelDeep,
+      fillAlpha: 0.85,
+      border: COLORS.border,
+      borderAlpha: 0.7,
+      radius: 16,
+      shadow: true,
+    });
     this.resultText = this.add
       .text(cx, 705, '강화 버튼을 눌러보세요', {
         fontFamily: 'Pretendard, sans-serif',
         fontSize: '22px',
-        color: '#cfd1d4',
+        color: hex(COLORS.textMuted),
         align: 'center',
         wordWrap: { width: 600 },
       })
@@ -266,6 +357,10 @@ export class GameScene extends Phaser.Scene {
 
     this.buildIncomeRow(cx, 880);
     this.buildEnhanceButton(cx, 990);
+    if (this.jobKey === 'planner') {
+      this.enhanceBtn.setVisible(false);
+      this.buildPlannerSlots(cx, 990);
+    }
 
     // 하단 가로 두 버튼: 직군 변경 + 이직
     this.makeButton(
@@ -314,6 +409,7 @@ export class GameScene extends Phaser.Scene {
       callback: () => this.maybeFireEmergency(),
     });
     this.setupAutoWork();
+    this.setupIdleParticles();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.regenTimer?.remove(false);
@@ -326,11 +422,18 @@ export class GameScene extends Phaser.Scene {
       this.autoWorkTimer = undefined;
       this.cloudPushTimer?.remove(false);
       this.cloudPushTimer = undefined;
+      this.idleParticleTimer?.remove(false);
+      this.idleParticleTimer = undefined;
+      this.ringTween?.stop();
+      this.ringContainer?.destroy();
       // 씬 종료 시 즉시 클라우드에 한 번 push (저장 누락 방지)
       void pushCloudSave(this.save);
       this.clearEmergencyObjs();
       this.clearTimingGauge();
     });
+
+    // idle 파티클 (단계 5+ 시 활성)
+    this.setupIdleParticles();
 
     this.refreshAll();
 
@@ -371,6 +474,22 @@ export class GameScene extends Phaser.Scene {
         if (k) this.toggleBuff(k);
       });
     });
+  }
+
+  private setupIdleParticles(): void {
+    this.idleParticleTimer?.remove(false);
+    this.idleParticleTimer = undefined;
+    if (!this.alive) return;
+    if (this.level < 5) return;
+    // 단계 비례 파티클 수: 5단계=1, 10=2, 15+=3
+    const count = Math.min(3, Math.floor((this.level - 4) / 5) + 1);
+    this.idleParticleTimer = spawnIdleParticles(
+      this,
+      this.charBaseX,
+      this.charBaseY,
+      count,
+      COLORS.gold,
+    );
   }
 
   private registerPassiveTimers(): void {
@@ -423,22 +542,26 @@ export class GameScene extends Phaser.Scene {
     const bg = this.add
       .rectangle(0, 0, w, h, 0x4a90e2, 1)
       .setStrokeStyle(2, 0xffffff, 0.25);
+    // 좌측 아이콘 + 우측 텍스트 (라벨/sub)
+    const icon = this.add
+      .image(-w / 2 + 30, 0, `icon-income-${key}`)
+      .setDisplaySize(40, 40);
     const label = this.add
-      .text(0, -12, `${def.emoji} ${def.label}`, {
+      .text(-w / 2 + 60, -12, def.label, {
         fontFamily: 'Pretendard, sans-serif',
         fontSize: '20px',
         color: '#ffffff',
         fontStyle: 'bold',
       })
-      .setOrigin(0.5);
+      .setOrigin(0, 0.5);
     const sub = this.add
-      .text(0, 16, '', {
+      .text(-w / 2 + 60, 14, '', {
         fontFamily: 'Pretendard, sans-serif',
-        fontSize: '16px',
+        fontSize: '15px',
         color: '#ffffff',
       })
-      .setOrigin(0.5);
-    container.add([bg, label, sub]);
+      .setOrigin(0, 0.5);
+    container.add([bg, icon, label, sub]);
     container.setSize(w, h);
     container.setInteractive({ useHandCursor: true });
     container.on('pointerover', () => bg.setStrokeStyle(2, 0xffffff, 0.7));
@@ -572,6 +695,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private cooldownTickAccumulator = 0;
+  private comboTickAccumulator = 0;
   update(_time: number, delta: number): void {
     if (this.shakeAmplitude > 0) {
       const dx = (Math.random() - 0.5) * this.shakeAmplitude;
@@ -587,6 +711,21 @@ export class GameScene extends Phaser.Scene {
     if (this.cooldownTickAccumulator >= 250) {
       this.cooldownTickAccumulator = 0;
       this.refreshIncomeButtons();
+    }
+
+    // 개발자 콤보 만료 체크 + 카운트다운 표시 (4Hz)
+    if (this.jobKey === 'developer') {
+      this.comboTickAccumulator += delta;
+      if (this.comboTickAccumulator >= 250) {
+        this.comboTickAccumulator = 0;
+        this.checkComboExpiry();
+        if (this.save.combo > 0) this.refreshComboText();
+      }
+    }
+
+    // 기획자 슬롯 진행 상태 갱신 (4Hz, cooldownTickAccumulator 재사용)
+    if (this.jobKey === 'planner' && this.cooldownTickAccumulator === 0) {
+      this.refreshPlannerSlots();
     }
   }
 
@@ -616,10 +755,10 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0, 0.5);
 
-    // 인벤 슬롯 6개 + 상점 버튼 (우측 정렬, 가로 한 줄)
-    const slotW = 60;
+    // 인벤 슬롯 + 상점 버튼 (우측 정렬, 가로 한 줄)
+    const slotW = 52;
     const slotH = 60;
-    const slotGap = 4;
+    const slotGap = 3;
     const shopBtnW = 60;
     const rightPad = 12;
     const shopX = GAME_WIDTH - rightPad - shopBtnW / 2;
@@ -647,22 +786,31 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildInventorySlot(x: number, y: number, w: number, h: number, key: ItemKey): void {
-    const def = ITEMS[key];
+    void ITEMS[key];
     const bg = this.add
       .rectangle(x, y, w, h, 0x2a2a32)
       .setStrokeStyle(2, 0xffffff, 0.15);
-    this.add
-      .text(x - w / 2 + 4, y - h / 2 + 2, def.emoji, {
-        fontFamily: 'sans-serif',
-        fontSize: '22px',
-      })
-      .setOrigin(0, 0);
+    // 아이콘 SVG가 로드된 키만 이미지 사용. 미로드 시 이모지 fallback.
+    const iconKey = `icon-item-${key}`;
+    let icon: Phaser.GameObjects.Image | Phaser.GameObjects.Text;
+    if (this.textures.exists(iconKey)) {
+      icon = this.add.image(x, y - 6, iconKey).setDisplaySize(36, 36);
+    } else {
+      icon = this.add
+        .text(x, y - 6, ITEMS[key].emoji, {
+          fontFamily: 'sans-serif',
+          fontSize: '28px',
+        })
+        .setOrigin(0.5);
+    }
     const countText = this.add
       .text(x + w / 2 - 4, y + h / 2 - 2, '×0', {
         fontFamily: 'Pretendard, sans-serif',
-        fontSize: '17px',
+        fontSize: '16px',
         color: '#ffffff',
         fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 3,
       })
       .setOrigin(1, 1);
 
@@ -675,7 +823,7 @@ export class GameScene extends Phaser.Scene {
       this.refreshSlotStyle(key);
     });
 
-    this.slotByKey[key] = { bg, countText };
+    this.slotByKey[key] = { bg, icon, countText };
   }
 
   private toggleBuff(key: ItemKey): void {
@@ -730,6 +878,171 @@ export class GameScene extends Phaser.Scene {
     this.enhanceBtnSub = sub;
   }
 
+  // ============ 기획자 병렬 슬롯 (Phase 1B) ============
+
+  private buildPlannerSlots(centerX: number, y: number): void {
+    const w = 200;
+    const h = 96;
+    const gap = 16;
+    const total = PLANNER_SLOT_COUNT * w + (PLANNER_SLOT_COUNT - 1) * gap;
+    const startX = centerX - total / 2 + w / 2;
+    for (let i = 0; i < PLANNER_SLOT_COUNT; i++) {
+      const x = startX + i * (w + gap);
+      const container = this.add.container(x, y);
+      const bg = this.add
+        .rectangle(0, 0, w, h, 0x4a90e2, 1)
+        .setStrokeStyle(3, 0xffffff, 0.2);
+      const label = this.add
+        .text(0, -22, '📋 새 스펙', {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '20px',
+          color: '#ffffff',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5);
+      const sub = this.add
+        .text(0, 8, '', {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '14px',
+          color: '#dde2ee',
+          align: 'center',
+        })
+        .setOrigin(0.5);
+      const gaugeMaxWidth = w - 24;
+      const gauge = this.add
+        .rectangle(-gaugeMaxWidth / 2, h / 2 - 12, 0, 6, 0xffd23f, 1)
+        .setOrigin(0, 0.5);
+      container.add([bg, label, sub, gauge]);
+      container.setSize(w, h);
+      container.setInteractive({ useHandCursor: true });
+      const idx = i;
+      container.on('pointerover', () => bg.setStrokeStyle(3, 0xffffff, 0.7));
+      container.on('pointerout', () => bg.setStrokeStyle(3, 0xffffff, 0.2));
+      container.on('pointerdown', () => this.handlePlannerSlotClick(idx));
+      this.plannerSlotUI.push({ container, bg, label, sub, gauge, gaugeMaxWidth });
+    }
+    this.refreshPlannerSlots();
+  }
+
+  private refreshPlannerSlots(): void {
+    if (this.plannerSlotUI.length === 0) return;
+    if (!this.alive) {
+      this.plannerSlotUI.forEach((ui) => {
+        ui.bg.setFillStyle(COLOR_DIM);
+        ui.label.setText('💀 폭사');
+        ui.sub.setText('탭해서 다시 시작');
+        ui.gauge.width = 0;
+      });
+      return;
+    }
+    const now = Date.now();
+    const slots = this.save.plannerSlots;
+    for (let i = 0; i < PLANNER_SLOT_COUNT; i++) {
+      const ui = this.plannerSlotUI[i];
+      if (!ui) continue;
+      const slot = slots[i];
+      const state = plannerSlotState(slot, now);
+      switch (state.kind) {
+        case 'empty': {
+          const cost = plannerSlotCost(this.level);
+          const canAfford = this.save.gold >= cost;
+          ui.bg.setFillStyle(canAfford ? 0x4a90e2 : COLOR_DIM);
+          ui.label.setText(canAfford ? '📋 새 스펙' : '골드 부족');
+          ui.label.setColor('#ffffff');
+          ui.sub.setText(`-${this.fmtGold(cost)} · ${Math.round(plannerSlotDurationMs(this.level) / 1000)}s 소요`);
+          ui.sub.setColor('#dde2ee');
+          ui.gauge.width = 0;
+          break;
+        }
+        case 'running': {
+          ui.bg.setFillStyle(0x3a4858);
+          ui.label.setText('📋 작성 중...');
+          ui.label.setColor('#ffffff');
+          const sec = Math.ceil(state.remainingMs / 1000);
+          ui.sub.setText(`${sec}s 남음 · lv ${state.level}`);
+          ui.sub.setColor('#dde2ee');
+          ui.gauge.width = ui.gaugeMaxWidth * state.progress01;
+          break;
+        }
+        case 'ready': {
+          ui.bg.setFillStyle(0x4ae290);
+          ui.label.setText('✅ 검토 완료');
+          ui.label.setColor('#0e0e12');
+          ui.sub.setText(`탭해서 강화 시도 · lv ${state.level}`);
+          ui.sub.setColor('#0e0e12');
+          ui.gauge.width = ui.gaugeMaxWidth;
+          break;
+        }
+      }
+    }
+  }
+
+  private handlePlannerSlotClick(idx: number): void {
+    if (this.isEnhancing) return;
+    if (!this.alive) {
+      this.restartCharacter();
+      return;
+    }
+    const slot = this.save.plannerSlots[idx];
+    if (!slot) return;
+    const state = plannerSlotState(slot, Date.now());
+    switch (state.kind) {
+      case 'empty':
+        this.tryStartPlannerSlot(idx);
+        break;
+      case 'running':
+        this.flashResultText(`${Math.ceil(state.remainingMs / 1000)}s 후 검토 완료`);
+        break;
+      case 'ready':
+        this.claimPlannerSlot(idx);
+        break;
+    }
+  }
+
+  private tryStartPlannerSlot(idx: number): void {
+    if (this.level >= MAX_LEVEL) {
+      this.flashResultText('이미 최고 단계입니다.');
+      return;
+    }
+    const gate = checkSynergyGate(this.level, this.otherJobsBestAvg());
+    if (!gate.ok) {
+      this.flashResultText(
+        `🔒 팀 시너지 부족 — 다른 두 직군 평균 ${gate.required.toFixed(0)}단계 필요 (현재 ${gate.have.toFixed(1)})`,
+      );
+      return;
+    }
+    const cost = plannerSlotCost(this.level);
+    if (this.save.gold < cost) {
+      this.flashResultText('골드가 부족합니다.');
+      return;
+    }
+    this.save.gold -= cost;
+    const duration = plannerSlotDurationMs(this.level);
+    this.save.plannerSlots[idx] = {
+      startedAt: Date.now(),
+      durationMs: duration,
+      level: this.level,
+    };
+    persistSave(this.save);
+    this.refreshTopBar();
+    this.refreshPlannerSlots();
+    this.scheduleCloudPush();
+  }
+
+  private claimPlannerSlot(idx: number): void {
+    const slot = this.save.plannerSlots[idx];
+    if (!slot) return;
+    this.save.plannerSlots[idx] = { startedAt: 0, durationMs: 0, level: 0 };
+    if (slot.level !== this.level) {
+      this.flashResultText('현재 단계와 슬롯 단계가 달라 슬롯 폐기됨.');
+      persistSave(this.save);
+      this.refreshPlannerSlots();
+      return;
+    }
+    // 슬롯 시작 시 이미 cost 차감했으므로 0 cost로 강화 진행
+    this.startEnhancement(0);
+  }
+
   private handlePrimaryAction(): void {
     // 1) 컷인 떠 있으면 스킵 우선
     if (this.skipReady && this.skipCutIn) {
@@ -750,8 +1063,39 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    // 3.5) 팀 시너지 게이트 체크 (lv 10+ 부터)
+    const gate = checkSynergyGate(this.level, this.otherJobsBestAvg());
+    if (!gate.ok) {
+      this.flashResultText(
+        `🔒 팀 시너지 부족 — 다른 두 직군 평균 ${gate.required.toFixed(0)}단계 필요 (현재 ${gate.have.toFixed(1)})`,
+      );
+      return;
+    }
+
+    // 기획자: Space 키 → 가장 먼저 ready인 슬롯 claim,
+    //  ready 없으면 가장 빠르게 비어있는 슬롯에 새 스펙 시작
+    if (this.jobKey === 'planner') {
+      const now = Date.now();
+      const readyIdx = this.save.plannerSlots.findIndex(
+        (s) => plannerSlotState(s, now).kind === 'ready',
+      );
+      if (readyIdx >= 0) {
+        this.claimPlannerSlot(readyIdx);
+        return;
+      }
+      const emptyIdx = this.save.plannerSlots.findIndex(
+        (s) => plannerSlotState(s, now).kind === 'empty',
+      );
+      if (emptyIdx >= 0) {
+        this.handlePlannerSlotClick(emptyIdx);
+        return;
+      }
+      this.flashResultText('모든 슬롯 작성 중. 잠시 후 다시 시도하세요.');
+      return;
+    }
+
     // 4) 비용 체크
-    const cost = costFor(this.level);
+    const cost = costFor(this.level, this.jobKey);
     if (this.save.gold < cost) {
       this.flashResultText('골드가 부족합니다.');
       return;
@@ -773,6 +1117,7 @@ export class GameScene extends Phaser.Scene {
     this.scheduleCloudPush();
     this.refreshAll();
     this.setupAutoWork();
+    this.setupIdleParticles();
     this.resultText.setText('새 캐릭터 출근. 다시 시작합니다.');
   }
 
@@ -814,16 +1159,163 @@ export class GameScene extends Phaser.Scene {
     this.refreshSlots();
     this.refreshBuffsText();
 
+    // 리팩토링: 즉시 +1 확정. 단 골드 30% 손실. 다른 강화 흐름은 일반 success 처리되지만
+    // gold loss는 추가로 적용한다.
+    const refactorUsed = !!usedBuffs.refactor;
+
     this.playBuildup(() => {
       const mainBonus = this.currentMainBonus() + this.prestigeRateBonus() + this.teamRateBonus();
       const comboBonus = this.currentComboBonus();
       const timingBonus = this.currentTimingBonus;
       this.currentTimingBonus = 0;
-      const result = tryEnhance(this.level, usedBuffs, undefined, mainBonus, comboBonus + timingBonus);
+      // 무드보드: 디자이너 best의 절반(%p) 추가 (이번 강화에만)
+      const moodboardBonus = usedBuffs.moodboard
+        ? this.save.bestByJob.designer * 0.005
+        : 0;
+      // 디자이너: 3 라운드 시안 검토. masterhand/refactor/maxed는 곧바로 처리.
+      if (
+        this.jobKey === 'designer'
+        && !usedBuffs.masterhand
+        && !usedBuffs.refactor
+        && this.alive
+        && this.level < MAX_LEVEL
+      ) {
+        this.playDesignerRoundsThenApply(
+          usedBuffs,
+          mainBonus,
+          comboBonus + timingBonus + moodboardBonus,
+          cost,
+        );
+        return;
+      }
+      // 리팩토링 후처리: 강화 결과 적용 후 골드 30% 손실
+      if (refactorUsed) {
+        this.time.delayedCall(50, () => {
+          const lost = Math.floor(this.save.gold * 0.3);
+          this.save.gold -= lost;
+          this.refreshTopBar();
+          this.spawnFloatingGold(lost, '🔄 리팩토링 부채', '#e24a4a');
+        });
+      }
+      const result = tryEnhance(
+        this.level,
+        usedBuffs,
+        undefined,
+        mainBonus,
+        comboBonus + timingBonus + moodboardBonus,
+        this.jobKey,
+      );
       // eslint-disable-next-line no-console
-      console.log('[enhance]', this.jobKey, { result, cost, usedBuffs, mainBonus, comboBonus, timingBonus });
+      console.log('[enhance]', this.jobKey, { result, cost, usedBuffs, mainBonus, comboBonus, timingBonus, moodboardBonus });
       this.applyResult(result, cost);
     });
+  }
+
+  // ============ 디자이너 다라운드 시안 (Phase 1C) ============
+
+  private playDesignerRoundsThenApply(
+    usedBuffs: ActiveBuffs,
+    mainBonus: number,
+    extraBonus: number,
+    cost: number,
+  ): void {
+    const eff = effectiveRate(this.level, usedBuffs, mainBonus, extraBonus);
+    const perRound = designerPerRoundRate(eff);
+    const cx = GAME_WIDTH / 2;
+    const baseY = 760;
+    // 라운드별 결과 표시용 텍스트/아이콘
+    const roundIndicators: Phaser.GameObjects.Text[] = [];
+    const totalW = DESIGNER_ROUND_COUNT * 90;
+    const startX = cx - totalW / 2 + 45;
+    for (let i = 0; i < DESIGNER_ROUND_COUNT; i++) {
+      const t = this.add
+        .text(startX + i * 90, baseY, DESIGNER_ROUND_LABELS[i] + '\n…', {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '18px',
+          color: '#cfd1d4',
+          align: 'center',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5)
+        .setDepth(70);
+      roundIndicators.push(t);
+    }
+
+    const rolls: boolean[] = [];
+    let allOk = true;
+    let stepIdx = 0;
+    const stepOnce = () => {
+      const ok = Math.random() < perRound;
+      rolls.push(ok);
+      const ind = roundIndicators[stepIdx];
+      if (ok) {
+        ind.setText(`${DESIGNER_ROUND_LABELS[stepIdx]}\n✅ OK`);
+        ind.setColor('#4ae290');
+      } else {
+        ind.setText(`${DESIGNER_ROUND_LABELS[stepIdx]}\n❌ 반려`);
+        ind.setColor('#e24a4a');
+        allOk = false;
+      }
+      stepIdx += 1;
+      if (stepIdx < DESIGNER_ROUND_COUNT) {
+        this.time.delayedCall(DESIGNER_ROUND_INTERVAL_MS, stepOnce);
+        return;
+      }
+      // 모든 라운드 종료 → 결과 산출
+      this.time.delayedCall(420, () => {
+        roundIndicators.forEach((t) => t.destroy());
+        const result = this.computeDesignerResult(usedBuffs, allOk);
+        // eslint-disable-next-line no-console
+        console.log('[enhance:designer]', { rolls, allOk, perRound: perRound.toFixed(3), eff: eff.toFixed(3), result });
+        this.applyResult(result, cost);
+      });
+    };
+    this.time.delayedCall(120, stepOnce);
+  }
+
+  /**
+   * 디자이너 라운드 누적 결과 → EnhanceResult.
+   * - allOk=true → success (축복권 우선순위 그대로)
+   * - allOk=false → fail (현재 직군 페널티 적용, protect/revive 처리)
+   */
+  private computeDesignerResult(
+    usedBuffs: ActiveBuffs,
+    allOk: boolean,
+  ): EnhanceResult {
+    if (this.level >= MAX_LEVEL) return { kind: 'maxed', level: this.level };
+    if (allOk) {
+      const protectedBy: ItemKey | undefined = usedBuffs.super_blessing
+        ? 'super_blessing'
+        : usedBuffs.blessing
+          ? 'blessing'
+          : undefined;
+      return {
+        kind: 'success',
+        from: this.level,
+        to: this.level + 1,
+        ...(protectedBy ? { protectedBy } : {}),
+      };
+    }
+    const fail = failPenaltyFor(this.level, this.jobKey);
+    switch (fail.kind) {
+      case 'stay':
+        return { kind: 'fail-stay', level: this.level };
+      case 'down': {
+        if (usedBuffs.protect) {
+          return { kind: 'fail-stay', level: this.level, protectedBy: 'protect' };
+        }
+        const next = Math.max(0, this.level - fail.amount);
+        return { kind: 'fail-down', from: this.level, to: next };
+      }
+      case 'destroy':
+        if (usedBuffs.protect) {
+          return { kind: 'fail-stay', level: this.level, protectedBy: 'protect' };
+        }
+        if (usedBuffs.revive) {
+          return { kind: 'fail-stay', level: this.level, protectedBy: 'revive' };
+        }
+        return { kind: 'destroy', from: this.level };
+    }
   }
 
   private playBuildup(onComplete: () => void): void {
@@ -959,6 +1451,7 @@ export class GameScene extends Phaser.Scene {
           this.save.stats.highestLevel = this.level;
         }
         this.save.combo += 1;
+        this.save.comboLastAt = Date.now();
         this.refreshDisplay();
         this.playSuccessFx();
         if (result.protectedBy === 'masterhand') {
@@ -1021,6 +1514,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshComboText();
     this.refreshSalaryText();
     this.setupAutoWork();
+    this.setupIdleParticles();
     persistSave(this.save);
     this.scheduleCloudPush();
     this.maybeTriggerHeadhunter();
@@ -1267,7 +1761,7 @@ export class GameScene extends Phaser.Scene {
     objs.push(overlay);
 
     const panelW = 660;
-    const panelH = 1180;
+    const panelH = 1180;  // 10 items × ~96px = ~960px + header/footer
     const panel = this.add
       .rectangle(cx, cy, panelW, panelH, 0x1a1a22)
       .setStrokeStyle(3, 0xffffff, 0.2)
@@ -1297,8 +1791,8 @@ export class GameScene extends Phaser.Scene {
     refreshGoldLabel();
     objs.push(goldLabel);
 
-    const cardH = 140;
-    const cardGap = 10;
+    const cardH = 96;
+    const cardGap = 6;
     const firstCardY = cy - panelH / 2 + 120 + cardH / 2;
     ITEM_KEYS.forEach((key, i) => {
       const def = ITEMS[key];
@@ -1312,26 +1806,40 @@ export class GameScene extends Phaser.Scene {
         .setDepth(202);
       objs.push(card);
 
+      const iconKey = `icon-item-${key}`;
+      const iconY = yy - cardH / 2 + 22;
+      const headIcon = this.textures.exists(iconKey)
+        ? this.add
+            .image(cx - cardW / 2 + 36, iconY, iconKey)
+            .setDisplaySize(28, 28)
+            .setDepth(203)
+        : this.add
+            .text(cx - cardW / 2 + 36, iconY, def.emoji, {
+              fontFamily: 'sans-serif',
+              fontSize: '22px',
+            })
+            .setOrigin(0.5)
+            .setDepth(203);
       const head = this.add
-        .text(cx - cardW / 2 + 20, yy - cardH / 2 + 16, `${def.emoji}  ${def.label}`, {
+        .text(cx - cardW / 2 + 64, yy - cardH / 2 + 8, def.label, {
           fontFamily: 'Pretendard, sans-serif',
-          fontSize: '24px',
+          fontSize: '20px',
           color: '#ffffff',
           fontStyle: 'bold',
         })
         .setOrigin(0, 0)
         .setDepth(203);
-      objs.push(head);
+      objs.push(headIcon, head);
 
-      const buyBtnW = 140;
-      const buyBtnH = 54;
+      const buyBtnW = 130;
+      const buyBtnH = 48;
       const buyX = cx + cardW / 2 - 16 - buyBtnW / 2;
       const buyY = yy;
 
       const desc = this.add
-        .text(cx - cardW / 2 + 20, yy - cardH / 2 + 56, def.desc, {
+        .text(cx - cardW / 2 + 20, yy - cardH / 2 + 38, def.desc, {
           fontFamily: 'Pretendard, sans-serif',
-          fontSize: '17px',
+          fontSize: '14px',
           color: '#cfd1d4',
           wordWrap: { width: cardW - 40 - buyBtnW - 12 },
         })
@@ -1340,9 +1848,9 @@ export class GameScene extends Phaser.Scene {
       objs.push(desc);
 
       const ownLabel = this.add
-        .text(cx - cardW / 2 + 20, yy + cardH / 2 - 18, '', {
+        .text(cx - cardW / 2 + 20, yy + cardH / 2 - 14, '', {
           fontFamily: 'Pretendard, sans-serif',
-          fontSize: '16px',
+          fontSize: '14px',
           color: '#9aa0a6',
         })
         .setOrigin(0, 0.5)
@@ -1437,6 +1945,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshComboText();
     this.refreshEquipSlots();
     this.refreshTeamSynergy();
+    this.refreshPlannerSlots();
   }
 
   private refreshTeamSynergy(): void {
@@ -1497,14 +2006,23 @@ export class GameScene extends Phaser.Scene {
     const count = this.save.inventory[key];
     slot.countText.setText(`×${count}`);
     if (count <= 0) {
-      slot.bg.setFillStyle(0x2a2a32);
-      slot.bg.setStrokeStyle(2, 0xffffff, 0.1);
+      // 빈 슬롯 — 흐리게 (alpha 0.35)
+      slot.bg.setFillStyle(COLORS.bgPanelDeep);
+      slot.bg.setStrokeStyle(1, COLORS.border, 0.5);
+      slot.icon.setAlpha(0.3);
+      slot.countText.setAlpha(0.5);
     } else if (this.buffs[key]) {
+      // 활성 (토글된) — 액센트 컬러
       slot.bg.setFillStyle(ITEMS[key].color);
-      slot.bg.setStrokeStyle(3, 0xffffff, 0.9);
+      slot.bg.setStrokeStyle(3, 0xffffff, 0.95);
+      slot.icon.setAlpha(1);
+      slot.countText.setAlpha(1);
     } else {
-      slot.bg.setFillStyle(0x2a2a32);
-      slot.bg.setStrokeStyle(2, ITEMS[key].color, 0.7);
+      // 보유 (비활성) — 액센트 테두리
+      slot.bg.setFillStyle(COLORS.bgPanelLight);
+      slot.bg.setStrokeStyle(2, ITEMS[key].color, 0.85);
+      slot.icon.setAlpha(1);
+      slot.countText.setAlpha(1);
     }
   }
 
@@ -1571,7 +2089,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private unlockButton(): void {
-    const cost = costFor(this.level);
+    const cost = costFor(this.level, this.jobKey);
     const canAfford = this.save.gold >= cost;
     if (canAfford) {
       this.enhanceBtnBg.setFillStyle(COLOR_GOLD);
@@ -1626,9 +2144,37 @@ export class GameScene extends Phaser.Scene {
     container.add([bg, text]);
     container.setSize(w, h);
     container.setInteractive({ useHandCursor: true });
-    container.on('pointerover', () => bg.setStrokeStyle(3, 0xffffff, 0.6));
-    container.on('pointerout', () => bg.setStrokeStyle(3, 0xffffff, 0.2));
-    container.on('pointerdown', onClick);
+    let hoverTween: Phaser.Tweens.Tween | undefined;
+    container.on('pointerover', () => {
+      bg.setStrokeStyle(3, 0xffffff, 0.85);
+      hoverTween?.stop();
+      hoverTween = this.tweens.add({
+        targets: container,
+        scale: 1.04,
+        duration: 120,
+        ease: 'Cubic.easeOut',
+      });
+    });
+    container.on('pointerout', () => {
+      bg.setStrokeStyle(3, 0xffffff, 0.2);
+      hoverTween?.stop();
+      hoverTween = this.tweens.add({
+        targets: container,
+        scale: 1,
+        duration: 120,
+        ease: 'Cubic.easeOut',
+      });
+    });
+    container.on('pointerdown', () => {
+      // 짧은 클릭 펀치
+      this.tweens.add({
+        targets: container,
+        scale: { from: 0.96, to: 1.04 },
+        duration: 100,
+        ease: 'Cubic.easeOut',
+      });
+      onClick();
+    });
     return container;
   }
 
@@ -1664,18 +2210,21 @@ export class GameScene extends Phaser.Scene {
     const bg = this.add
       .rectangle(0, 0, w, h, 0x2a2a32)
       .setStrokeStyle(2, 0xffd23f, 0.5);
-    const emoji = this.add
-      .text(0, -10, meta.emoji, { fontFamily: 'sans-serif', fontSize: '24px' })
-      .setOrigin(0.5);
+    const icon = this.add
+      .image(0, -10, `icon-equip-${slot}`)
+      .setDisplaySize(38, 38);
     const levelText = this.add
-      .text(0, 14, '0', {
+      .text(0, 18, '0', {
         fontFamily: 'Pretendard, sans-serif',
-        fontSize: '18px',
+        fontSize: '16px',
         color: '#ffffff',
         fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 3,
       })
       .setOrigin(0.5);
-    container.add([bg, emoji, levelText]);
+    container.add([bg, icon, levelText]);
+    void meta;
     container.setSize(w, h);
     container.setInteractive({ useHandCursor: true });
     container.on('pointerover', () => bg.setStrokeStyle(2, 0xffd23f, 1));
@@ -1720,8 +2269,13 @@ export class GameScene extends Phaser.Scene {
     objs.push(panel);
 
     const meta = SLOTS[slot];
+    const titleIcon = this.add
+      .image(cx - 80, cy - panelH / 2 + 36, `icon-equip-${slot}`)
+      .setDisplaySize(36, 36)
+      .setDepth(202);
+    objs.push(titleIcon);
     const title = this.add
-      .text(cx, cy - panelH / 2 + 36, `${meta.emoji} ${meta.label}`, {
+      .text(cx, cy - panelH / 2 + 36, meta.label, {
         fontFamily: 'Pretendard, sans-serif',
         fontSize: '32px',
         color: '#ffffff',
@@ -1908,12 +2462,64 @@ export class GameScene extends Phaser.Scene {
 
   // ============ 콤보 시스템 ============
 
-  /** 콤보 → 다음 강화 보너스 (성공률에 가산) */
+  /**
+   * 콤보 → 다음 강화 보너스 (성공률에 가산).
+   * - developer: 콤보당 +1%p, 캡 +30%p (만료 시간 8s, 끊기면 0)
+   * - planner/designer: 3+/5+/10+ → +2/+5/+10%p (캡 +10%p)
+   */
   private currentComboBonus(): number {
+    if (this.jobKey === 'developer') {
+      return Math.min(
+        DEVELOPER_COMBO_BONUS_CAP,
+        this.save.combo * DEVELOPER_COMBO_BONUS_PER,
+      );
+    }
     if (this.save.combo >= 10) return 0.10;
     if (this.save.combo >= 5) return 0.05;
     if (this.save.combo >= 3) return 0.02;
     return 0;
+  }
+
+  /** 개발자 전용: 콤보 만료 체크. 만료되면 0으로 리셋. */
+  private checkComboExpiry(): void {
+    if (this.jobKey !== 'developer') return;
+    if (this.save.combo <= 0) return;
+    if (this.isEnhancing) return;
+    if (this.save.comboLastAt <= 0) return;
+    const elapsed = Date.now() - this.save.comboLastAt;
+    if (elapsed >= DEVELOPER_COMBO_DEADLINE_MS) {
+      this.save.combo = 0;
+      this.save.comboLastAt = 0;
+      persistSave(this.save);
+      this.showComboBreak();
+      this.refreshComboText();
+      this.refreshRateText();
+    }
+  }
+
+  /** 콤보 끊김 시각 효과 ("프로덕션 장애!" 메시지 + 흔들림) */
+  private showComboBreak(): void {
+    if (!this.alive) return;
+    this.cameras.main.shake(220, 0.012);
+    const cx = GAME_WIDTH / 2;
+    const t = this.add
+      .text(cx, 700, '💥 콤보 끊김 — 프로덕션 장애!', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '26px',
+        color: '#e24a4a',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(180);
+    this.tweens.add({
+      targets: t,
+      alpha: 0,
+      y: 660,
+      duration: 1200,
+      onComplete: () => t.destroy(),
+    });
   }
 
   private refreshComboText(): void {
@@ -1922,7 +2528,27 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const bonus = this.currentComboBonus();
-    if (bonus > 0) {
+    if (this.jobKey === 'developer') {
+      const remaining = Math.max(
+        0,
+        DEVELOPER_COMBO_DEADLINE_MS - (Date.now() - this.save.comboLastAt),
+      );
+      const sec = Math.ceil(remaining / 1000);
+      const lines = [
+        `🔥 ${this.save.combo}`,
+        `콤보 +${(bonus * 100).toFixed(0)}%p`,
+        `⏱ ${sec}s`,
+      ];
+      this.comboText.setText(lines.join('\n'));
+      // 시간 임박 시 색상 변경
+      if (remaining < 2000) {
+        this.comboText.setColor('#e24a4a');
+      } else if (remaining < 4000) {
+        this.comboText.setColor('#ffd23f');
+      } else {
+        this.comboText.setColor('#ff8c42');
+      }
+    } else if (bonus > 0) {
       this.comboText.setText(`🔥 ${this.save.combo}\n콤보\n+${(bonus * 100).toFixed(0)}%p`);
     } else {
       this.comboText.setText(`🔥 ${this.save.combo}\n콤보`);
@@ -2148,20 +2774,28 @@ export class GameScene extends Phaser.Scene {
     return this.save.prestige * 0.01;
   }
 
-  // ============ 팀 시너지 ============
+  // ============ 팀 시너지 (Phase 3: 5배 강화) ============
   // 직군별 bestByJob 기반 영구 보너스 — 팀을 다 키워야 풀 시너지
 
-  /** 개발자 best → 본체 강화 +0.3%p × N */
+  /** 개발자 best → 본체 강화 +1.5%p × N */
   private teamRateBonus(): number {
-    return this.save.bestByJob.developer * 0.003;
+    return this.save.bestByJob.developer * 0.015;
   }
-  /** 기획자 best → 자동회복/패시브 ×(1 + 0.02 × N) */
+  /** 기획자 best → 자동회복/패시브 ×(1 + 0.10 × N) */
   private teamRegenMul(): number {
-    return 1 + this.save.bestByJob.planner * 0.02;
+    return 1 + this.save.bestByJob.planner * 0.10;
   }
-  /** 디자이너 best → 클릭 보상 ×(1 + 0.02 × N) */
+  /** 디자이너 best → 클릭 보상 ×(1 + 0.10 × N) */
   private teamClickMul(): number {
-    return 1 + this.save.bestByJob.designer * 0.02;
+    return 1 + this.save.bestByJob.designer * 0.10;
+  }
+
+  /** 현재 직군을 제외한 다른 두 직군 best의 평균 (gating용) */
+  private otherJobsBestAvg(): number {
+    const keys: JobKey[] = ['planner', 'designer', 'developer'];
+    const others = keys.filter((k) => k !== this.jobKey);
+    const sum = others.reduce((acc, k) => acc + this.save.bestByJob[k], 0);
+    return sum / others.length;
   }
 
   // ============ 자동 출근 ============
@@ -2535,6 +3169,7 @@ export class GameScene extends Phaser.Scene {
       void pushCloudSave(this.save);
       this.refreshAll();
       this.setupAutoWork();
+    this.setupIdleParticles();
       this.resultText.setText(`✨ 이직 완료! 명성치 +${prestigeGain} (현재 ${this.save.prestige})`);
       close();
     });

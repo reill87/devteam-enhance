@@ -4,6 +4,11 @@ import { STARTING_GOLD } from '../data/rates';
 import type { CurrencyKey } from '../data/currency';
 import type { JobKey } from '../data/characters';
 import type { EquipSlot } from '../data/equipment';
+import {
+  PLANNER_SLOT_COUNT,
+  emptyPlannerSlots,
+  type PlannerSlot,
+} from '../data/planner';
 
 const STORAGE_KEY = 'devteam-enhance/save/v3';
 
@@ -25,6 +30,8 @@ export type SaveData = {
   currency: CurrencyKey;
   /** 연속 강화 성공 콤보 (실패 시 0으로) */
   combo: number;
+  /** 마지막 콤보 갱신 시각 (epoch ms). 개발자 콤보 만료 판정에 사용 */
+  comboLastAt: number;
   /** 장인의 손길 마지막 사용 시각 (epoch ms) */
   masterhandLastUseAt: number;
   /** 장인의 손길 인플레이션: 누적 사용 횟수, 강화 N번 안 쓰면 0으로 리셋 */
@@ -41,6 +48,10 @@ export type SaveData = {
   progress: Record<JobKey, { level: number; alive: boolean }>;
   /** 직군별 도달 최고 단계 (이직/폭사해도 유지, 팀 시너지) */
   bestByJob: Record<JobKey, number>;
+  /** 기획자 병렬 스펙 슬롯 (Phase 1B). 항상 PLANNER_SLOT_COUNT 길이. */
+  plannerSlots: PlannerSlot[];
+  /** 누적 프로젝트 출시 성공 횟수 (Phase 4 엔드게임). */
+  projectsCompleted: number;
 };
 
 function emptyInventory(): Record<ItemKey, number> {
@@ -114,6 +125,7 @@ export function defaultSave(): SaveData {
     },
     currency: 'KRW',
     combo: 0,
+    comboLastAt: 0,
     masterhandLastUseAt: 0,
     masterhandUseCount: 0,
     masterhandIdleCounter: 0,
@@ -122,7 +134,24 @@ export function defaultSave(): SaveData {
     prestige: 0,
     progress: emptyProgress(),
     bestByJob: emptyBestByJob(),
+    plannerSlots: emptyPlannerSlots(),
+    projectsCompleted: 0,
   };
+}
+
+function parsePlannerSlots(raw: unknown): PlannerSlot[] {
+  const out = emptyPlannerSlots();
+  if (!Array.isArray(raw)) return out;
+  for (let i = 0; i < PLANNER_SLOT_COUNT && i < raw.length; i++) {
+    const e = raw[i];
+    if (!e || typeof e !== 'object') continue;
+    const slot = e as Record<string, unknown>;
+    const startedAt = typeof slot.startedAt === 'number' ? slot.startedAt : 0;
+    const durationMs = typeof slot.durationMs === 'number' ? slot.durationMs : 0;
+    const level = typeof slot.level === 'number' ? slot.level : 0;
+    out[i] = { startedAt, durationMs, level };
+  }
+  return out;
 }
 
 export function loadSave(): SaveData {
@@ -161,6 +190,7 @@ export function loadSave(): SaveData {
       stats: { ...def.stats, ...(parsed.stats ?? {}) },
       currency: parsed.currency === 'USD' || parsed.currency === 'KRW' ? parsed.currency : def.currency,
       combo: typeof parsed.combo === 'number' && parsed.combo >= 0 ? parsed.combo : 0,
+      comboLastAt: typeof parsed.comboLastAt === 'number' && parsed.comboLastAt >= 0 ? parsed.comboLastAt : 0,
       masterhandLastUseAt: typeof parsed.masterhandLastUseAt === 'number' ? parsed.masterhandLastUseAt : 0,
       masterhandUseCount: typeof parsed.masterhandUseCount === 'number' ? parsed.masterhandUseCount : 0,
       masterhandIdleCounter: typeof parsed.masterhandIdleCounter === 'number' ? parsed.masterhandIdleCounter : 0,
@@ -169,6 +199,9 @@ export function loadSave(): SaveData {
       prestige: typeof parsed.prestige === 'number' && parsed.prestige >= 0 ? parsed.prestige : 0,
       progress: parseProgress(parsed.progress),
       bestByJob: parseBestByJob(parsed.bestByJob),
+      plannerSlots: parsePlannerSlots(parsed.plannerSlots),
+      projectsCompleted: typeof parsed.projectsCompleted === 'number' && parsed.projectsCompleted >= 0
+        ? Math.floor(parsed.projectsCompleted) : 0,
     };
   } catch {
     return defaultSave();

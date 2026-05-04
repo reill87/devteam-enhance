@@ -8,6 +8,8 @@
  * - 6~8: 가팔라짐, 단계 하락 시작
  * - 9~10: 폭사 가능, 진짜 도전
  */
+import type { JobKey } from './characters';
+
 export type FailPenalty =
   | { kind: 'stay' }
   | { kind: 'down'; amount: number }
@@ -101,4 +103,77 @@ export function regenAmount(level: number): number {
 /** 출근하기 버튼 클릭당 획득량 (power law) */
 export function workClickReward(level: number): number {
   return Math.max(3, Math.ceil(Math.pow(level + 1, 1.4) * 3));
+}
+
+// ============ 직군별 비대칭 (Phase 1A~1C) ============
+
+/**
+ * 개발자 콤보 만료 시간 (ms).
+ * 마지막 강화 후 이 시간이 지나면 콤보가 0으로 리셋된다.
+ */
+export const DEVELOPER_COMBO_DEADLINE_MS = 8000;
+
+/** 개발자 콤보당 보너스(%p). 캡 포함. */
+export const DEVELOPER_COMBO_BONUS_PER = 0.01;
+export const DEVELOPER_COMBO_BONUS_CAP = 0.30;
+
+/**
+ * 직군별 강화 비용 배수.
+ * - developer: 0.7 (자주 시도해 콤보 유지 가능)
+ * - planner/designer: 1.0
+ */
+export function costMultiplierFor(job: JobKey): number {
+  return job === 'developer' ? 0.7 : 1.0;
+}
+
+/**
+ * 직군별 실패 페널티 오버레이.
+ * 개발자는 단계 하락 폭이 1 더 가혹, destroy 시작 단계도 한 단계 빨리 진입.
+ */
+export function failPenaltyFor(level: number, job: JobKey): FailPenalty {
+  const base = rateAt(level).fail;
+  if (job !== 'developer') return base;
+  switch (base.kind) {
+    case 'stay':
+      return base;
+    case 'down':
+      return { kind: 'down', amount: base.amount + 1 };
+    case 'destroy':
+      return base;
+  }
+}
+
+/**
+ * 직군별 강화 비용 (개발자 ×0.7).
+ */
+export function costForJob(level: number, job: JobKey): number {
+  return Math.max(1, Math.round(rateAt(level).cost * costMultiplierFor(job)));
+}
+
+// ============ 직군 간 시너지 게이팅 (Phase 3) ============
+
+/**
+ * 다음 단계로 강화하려면 다른 두 직군 best의 평균이 이 값 이상이어야 한다.
+ * - 0~9단계: 게이트 없음 (자유롭게 진행)
+ * - 10단계 이상부터: max(0, currentLevel - 5) 평균 필요
+ *
+ * 의도: 한 직군만 미는 외길 빌드를 lv 10에서 막음 → 셋 다 키우게 유도.
+ */
+export function synergyGateAvg(currentLevel: number): number {
+  if (currentLevel < 10) return 0;
+  return currentLevel - 5;
+}
+
+/**
+ * 강화 가능 여부.
+ * @param currentLevel 현재 강화하려는 직군의 레벨 (i → i+1 시도)
+ * @param otherBestAvg 다른 두 직군의 best 단계 평균
+ * @returns ok: 통과, gated: 차단됨 (얼마 부족한지)
+ */
+export type GateResult = { ok: true } | { ok: false; required: number; have: number };
+
+export function checkSynergyGate(currentLevel: number, otherBestAvg: number): GateResult {
+  const req = synergyGateAvg(currentLevel);
+  if (req === 0 || otherBestAvg >= req) return { ok: true };
+  return { ok: false, required: req, have: otherBestAvg };
 }

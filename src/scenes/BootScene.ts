@@ -9,7 +9,22 @@ export class BootScene extends Phaser.Scene {
     super('Boot');
   }
 
-  preload(): void {}
+  preload(): void {
+    // 14개 아이콘 SVG 프리로드 (key 컨벤션: icon-{category}-{name})
+    const ITEMS = ['protect', 'blessing', 'super_blessing', 'masterhand', 'revive', 'luck'];
+    const INCOMES = ['work', 'side_project', 'blog', 'scout', 'headhunter'];
+    const EQUIPS = ['main', 'sub', 'accessory'];
+    const opts = { width: 64, height: 64 };
+    ITEMS.forEach((k) =>
+      this.load.svg(`icon-item-${k}`, `assets/icons/items/${k}.svg`, opts),
+    );
+    INCOMES.forEach((k) =>
+      this.load.svg(`icon-income-${k}`, `assets/icons/income/${k}.svg`, opts),
+    );
+    EQUIPS.forEach((k) =>
+      this.load.svg(`icon-equip-${k}`, `assets/icons/equip/${k}.svg`, opts),
+    );
+  }
 
   create(): void {
     const cx = GAME_WIDTH / 2;

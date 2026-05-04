@@ -15,6 +15,15 @@ import {
   type LeaderboardRow,
   type LeaderboardSort,
 } from '../systems/CloudSyncSystem';
+import {
+  canLaunchProject,
+  nextProjectThreshold,
+  projectDefAt,
+  projectSuccessRate,
+  projectSuccessReward,
+  projectFailureReward,
+  PROJECT_SUCCESS_PRESTIGE,
+} from '../data/project';
 
 export class MenuScene extends Phaser.Scene {
   private authLabel?: Phaser.GameObjects.Text;
@@ -84,6 +93,9 @@ export class MenuScene extends Phaser.Scene {
     order.forEach((key, i) => {
       this.makeJobCard(cx, 360 + i * 200, key, save);
     });
+
+    // Phase 4: 프로젝트 출시 버튼 (조건 충족 시 활성)
+    this.buildProjectLaunchButton(cx, GAME_HEIGHT - 130, save);
 
     this.add
       .text(cx, GAME_HEIGHT - 60, 'v0.2 · 계정 인증 · 클라우드 세이브 · 리더보드', {
@@ -381,6 +393,220 @@ export class MenuScene extends Phaser.Scene {
         this.scene.restart();
       }
     }
+  }
+
+  // -------- 프로젝트 출시 (Phase 4) --------
+
+  private buildProjectLaunchButton(x: number, y: number, save: SaveData): void {
+    const canLaunch = canLaunchProject(save.bestByJob, save.projectsCompleted);
+    const threshold = nextProjectThreshold(save.projectsCompleted);
+    const w = 480;
+    const h = 76;
+    const container = this.add.container(x, y);
+    const bg = this.add
+      .rectangle(0, 0, w, h, canLaunch ? 0xffd23f : 0x3a3a44, 1)
+      .setStrokeStyle(2, 0xffffff, canLaunch ? 0.6 : 0.15);
+    const titleLabel = this.add
+      .text(0, -14, canLaunch ? '🚀 프로젝트 출시' : '🔒 프로젝트 잠김', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '22px',
+        color: canLaunch ? '#0e0e12' : '#9aa0a6',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5);
+    const subLabel = this.add
+      .text(
+        0,
+        16,
+        canLaunch
+          ? `누적 ${save.projectsCompleted}회 · 모든 직군 ${threshold} 이상 도달`
+          : `다음 출시: 모든 직군 ${threshold}단계 필요 (현재 P${save.bestByJob.planner}/D${save.bestByJob.designer}/E${save.bestByJob.developer})`,
+        {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '13px',
+          color: canLaunch ? '#0e0e12' : '#9aa0a6',
+        },
+      )
+      .setOrigin(0.5);
+    container.add([bg, titleLabel, subLabel]);
+    container.setSize(w, h);
+    if (canLaunch) {
+      container.setInteractive({ useHandCursor: true });
+      container.on('pointerover', () => bg.setStrokeStyle(2, 0xffffff, 1));
+      container.on('pointerout', () => bg.setStrokeStyle(2, 0xffffff, 0.6));
+      container.on('pointerdown', () => this.openProjectModal(save));
+    }
+  }
+
+  private openProjectModal(save: SaveData): void {
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const objs: Phaser.GameObjects.GameObject[] = [];
+
+    const overlay = this.add
+      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.78)
+      .setOrigin(0)
+      .setDepth(300)
+      .setInteractive();
+    objs.push(overlay);
+
+    const panel = this.add
+      .rectangle(cx, cy, 580, 660, 0x1a1a22)
+      .setStrokeStyle(3, 0xffd23f, 0.7)
+      .setDepth(301);
+    objs.push(panel);
+
+    const def = projectDefAt(save.projectsCompleted);
+    const rate = projectSuccessRate(save.bestByJob, save.projectsCompleted);
+    const reward = projectSuccessReward(save.projectsCompleted);
+    const consol = projectFailureReward(save.projectsCompleted);
+
+    objs.push(
+      this.add
+        .text(cx, cy - 270, '🚀 프로젝트 출시', {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '32px',
+          color: '#ffffff',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(cx, cy - 220, def.name, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '24px',
+          color: '#ffd23f',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(cx, cy - 175, `“${def.pitch}”`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '17px',
+          color: '#cfd1d4',
+          align: 'center',
+          wordWrap: { width: 520 },
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(cx, cy - 100, `성공률 ${(rate * 100).toFixed(0)}%`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '36px',
+          color: '#9af0a8',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(
+          cx,
+          cy - 50,
+          `팀 best — 기획 ${save.bestByJob.planner} · 디자인 ${save.bestByJob.designer} · 개발 ${save.bestByJob.developer}`,
+          {
+            fontFamily: 'Pretendard, sans-serif',
+            fontSize: '15px',
+            color: '#cfd1d4',
+          },
+        )
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(
+          cx,
+          cy + 0,
+          `🎯 성공 시: ⭐ 명성 +${PROJECT_SUCCESS_PRESTIGE} · 💰 +${reward.toLocaleString()}`,
+          {
+            fontFamily: 'Pretendard, sans-serif',
+            fontSize: '17px',
+            color: '#ffd23f',
+          },
+        )
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(cx, cy + 28, `💔 실패 시: 위로금 💰 +${consol.toLocaleString()}`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '15px',
+          color: '#e2904a',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+    );
+
+    const okBg = this.add
+      .rectangle(cx - 110, cy + 130, 200, 60, 0x4ae290)
+      .setStrokeStyle(2, 0xffffff, 0.5)
+      .setDepth(302);
+    const okText = this.add
+      .text(cx - 110, cy + 130, '시도하기', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '20px',
+        color: '#0e0e12',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5)
+      .setDepth(303);
+    const cancelBg = this.add
+      .rectangle(cx + 110, cy + 130, 200, 60, 0x3a3a44)
+      .setStrokeStyle(2, 0xffffff, 0.3)
+      .setDepth(302);
+    const cancelText = this.add
+      .text(cx + 110, cy + 130, '취소', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '20px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setDepth(303);
+    objs.push(okBg, okText, cancelBg, cancelText);
+
+    const result = this.add
+      .text(cx, cy + 200, '', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '17px',
+        color: '#cfd1d4',
+        align: 'center',
+        wordWrap: { width: 520 },
+      })
+      .setOrigin(0.5)
+      .setDepth(303);
+    objs.push(result);
+
+    let resolved = false;
+    const close = () => objs.forEach((o) => o.destroy());
+
+    okBg.setInteractive({ useHandCursor: true });
+    okBg.on('pointerdown', () => {
+      if (resolved) return;
+      resolved = true;
+      const ok = Math.random() < rate;
+      if (ok) {
+        save.projectsCompleted += 1;
+        save.prestige += PROJECT_SUCCESS_PRESTIGE;
+        save.gold += reward;
+        result.setText(`${def.successMessage}\n+⭐ ${PROJECT_SUCCESS_PRESTIGE} · 💰 +${reward.toLocaleString()}`);
+        result.setColor('#9af0a8');
+      } else {
+        save.gold += consol;
+        result.setText(`${def.failureMessage}\n💰 +${consol.toLocaleString()}`);
+        result.setColor('#e2904a');
+      }
+      persistSave(save);
+      okBg.disableInteractive();
+      cancelText.setText('닫기');
+      // 모달 닫고 메뉴 다시 그림 (시너지/버튼 갱신)
+      this.time.delayedCall(2200, () => {
+        close();
+        this.scene.restart();
+      });
+    });
+    cancelBg.setInteractive({ useHandCursor: true });
+    cancelBg.on('pointerdown', () => {
+      close();
+      if (resolved) this.scene.restart();
+    });
   }
 
   // -------- 계정 메뉴 (로그아웃/닉네임 변경) --------
@@ -816,9 +1042,9 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0, 0);
 
     let synergyDesc = '';
-    if (key === 'developer') synergyDesc = `시너지: 강화 +${(best * 0.3).toFixed(1)}%p`;
-    else if (key === 'planner') synergyDesc = `시너지: 회복 ×${(1 + best * 0.02).toFixed(2)}`;
-    else if (key === 'designer') synergyDesc = `시너지: 클릭 ×${(1 + best * 0.02).toFixed(2)}`;
+    if (key === 'developer') synergyDesc = `시너지: 강화 +${(best * 1.5).toFixed(1)}%p`;
+    else if (key === 'planner') synergyDesc = `시너지: 회복 ×${(1 + best * 0.10).toFixed(2)}`;
+    else if (key === 'designer') synergyDesc = `시너지: 클릭 ×${(1 + best * 0.10).toFixed(2)}`;
     const synergy = this.add
       .text(-w / 2 + 30, -h / 2 + 116, synergyDesc, {
         fontFamily: 'Pretendard, sans-serif',
