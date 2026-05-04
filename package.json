@@ -1,0 +1,21 @@
+{
+  "name": "devteam-enhance",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "검 강화 메커니즘 + 개발팀 직군 풍자 웹 게임",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.1",
+    "phaser": "^3.80.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}
