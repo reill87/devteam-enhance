@@ -388,7 +388,7 @@ export class GameScene extends Phaser.Scene {
       .text(
         cx,
         1240,
-        '⌨️ Space 강화 · W 출근 · B 블로그 · 1~6 아이템 · S 상점 · E 이직',
+        '⌨️ Space 강화 · W 출근 · B 블로그 · 1~9·0 아이템 · S 상점 · E 이직',
         {
           fontFamily: 'Pretendard, sans-serif',
           fontSize: '14px',
@@ -459,7 +459,8 @@ export class GameScene extends Phaser.Scene {
     kb.on('keydown-B', () => this.handleIncomeClick('blog'));
     kb.on('keydown-S', () => this.openShop());
     kb.on('keydown-E', () => this.openResignModal());
-    // 1~6: 아이템 토글 (ITEM_KEYS 순서: blessing, super_blessing, protect, revive, luck, masterhand)
+    // 1~9, 0 → 아이템 토글 (ITEM_KEYS 순서: blessing, super_blessing, protect, revive, luck,
+    //                      masterhand, deadline, gamble, refactor, moodboard)
     const itemNumKeys: Array<{ key: string; idx: number }> = [
       { key: 'ONE', idx: 0 },
       { key: 'TWO', idx: 1 },
@@ -467,6 +468,10 @@ export class GameScene extends Phaser.Scene {
       { key: 'FOUR', idx: 3 },
       { key: 'FIVE', idx: 4 },
       { key: 'SIX', idx: 5 },
+      { key: 'SEVEN', idx: 6 },
+      { key: 'EIGHT', idx: 7 },
+      { key: 'NINE', idx: 8 },
+      { key: 'ZERO', idx: 9 },
     ];
     itemNumKeys.forEach(({ key, idx }) => {
       kb.on(`keydown-${key}`, () => {
@@ -1296,7 +1301,13 @@ export class GameScene extends Phaser.Scene {
         ...(protectedBy ? { protectedBy } : {}),
       };
     }
-    const fail = failPenaltyFor(this.level, this.jobKey);
+    let fail = failPenaltyFor(this.level, this.jobKey);
+    // 마감 압박 페널티 업그레이드 (EnhanceSystem.rollOnce와 동일 로직)
+    if (usedBuffs.deadline && fail.kind === 'down') {
+      fail = { kind: 'down', amount: fail.amount + 1 };
+    } else if (usedBuffs.deadline && fail.kind === 'stay') {
+      fail = { kind: 'down', amount: 1 };
+    }
     switch (fail.kind) {
       case 'stay':
         return { kind: 'fail-stay', level: this.level };

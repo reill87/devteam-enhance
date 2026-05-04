@@ -100,7 +100,7 @@ export const ITEMS: Record<ItemKey, ItemDef> = {
     label: '리팩토링',
     shortLabel: '리팩',
     emoji: '🔄',
-    desc: '현재 단계 즉시 +1, 단 다음 강화 자동 실패 (보호 무시)',
+    desc: '현재 단계 즉시 +1, 단 보유 골드 30% 손실',
     price: 8000,
     color: 0x4a90e2,
   },

@@ -1108,9 +1108,9 @@ function positionInput(el: HTMLInputElement, _xOffset: number, yOffset: number):
 
 function buildSynergyLine(save: SaveData): string {
   const lines: string[] = [];
-  if (save.bestByJob.developer > 0) lines.push(`👨‍💻 강화 +${(save.bestByJob.developer * 0.3).toFixed(1)}%p`);
-  if (save.bestByJob.planner > 0) lines.push(`📋 회복 ×${(1 + save.bestByJob.planner * 0.02).toFixed(2)}`);
-  if (save.bestByJob.designer > 0) lines.push(`🎨 클릭 ×${(1 + save.bestByJob.designer * 0.02).toFixed(2)}`);
+  if (save.bestByJob.developer > 0) lines.push(`👨‍💻 강화 +${(save.bestByJob.developer * 1.5).toFixed(1)}%p`);
+  if (save.bestByJob.planner > 0) lines.push(`📋 회복 ×${(1 + save.bestByJob.planner * 0.10).toFixed(2)}`);
+  if (save.bestByJob.designer > 0) lines.push(`🎨 클릭 ×${(1 + save.bestByJob.designer * 0.10).toFixed(2)}`);
   return lines.length > 0 ? lines.join('  ·  ') : '아직 활성화된 시너지 없음';
 }
 
