@@ -908,20 +908,25 @@ export class GameScene extends Phaser.Scene {
       const bg = this.add
         .rectangle(0, 0, w, h, 0x4a90e2, 1)
         .setStrokeStyle(3, 0xffffff, 0.2);
+      // 라벨/서브 — 색은 고정. 가독성은 stroke로 보장 (어떤 bg에서도 읽힘)
       const label = this.add
         .text(0, -22, '📋 새 스펙', {
           fontFamily: 'Pretendard, sans-serif',
           fontSize: '20px',
           color: '#ffffff',
           fontStyle: 'bold',
+          stroke: '#000000',
+          strokeThickness: 3,
         })
         .setOrigin(0.5);
       const sub = this.add
         .text(0, 8, '', {
           fontFamily: 'Pretendard, sans-serif',
           fontSize: '14px',
-          color: '#dde2ee',
+          color: '#ffffff',
           align: 'center',
+          stroke: '#000000',
+          strokeThickness: 2,
         })
         .setOrigin(0.5);
       const gaugeMaxWidth = w - 24;
@@ -942,6 +947,9 @@ export class GameScene extends Phaser.Scene {
 
   private refreshPlannerSlots(): void {
     if (this.plannerSlotUI.length === 0) return;
+    // 라벨 색상은 buildPlannerSlots에서 stroke 포함 흰색으로 고정.
+    // setColor를 매 프레임 호출하면 Phaser 텍스처 렌더링에서 가끔
+    // null drawImage 예외가 발생해 씬이 먹통됨 → 색상 변경은 하지 않는다.
     if (!this.alive) {
       this.plannerSlotUI.forEach((ui) => {
         ui.bg.setFillStyle(COLOR_DIM);
@@ -964,28 +972,22 @@ export class GameScene extends Phaser.Scene {
           const canAfford = this.save.gold >= cost;
           ui.bg.setFillStyle(canAfford ? 0x4a90e2 : COLOR_DIM);
           ui.label.setText(canAfford ? '📋 새 스펙' : '골드 부족');
-          ui.label.setColor('#ffffff');
           ui.sub.setText(`-${this.fmtGold(cost)} · ${Math.round(plannerSlotDurationMs(this.level) / 1000)}s 소요`);
-          ui.sub.setColor('#dde2ee');
           ui.gauge.width = 0;
           break;
         }
         case 'running': {
           ui.bg.setFillStyle(0x3a4858);
           ui.label.setText('📋 작성 중...');
-          ui.label.setColor('#ffffff');
           const sec = Math.ceil(state.remainingMs / 1000);
           ui.sub.setText(`${sec}s 남음 · lv ${state.level}`);
-          ui.sub.setColor('#dde2ee');
           ui.gauge.width = ui.gaugeMaxWidth * state.progress01;
           break;
         }
         case 'ready': {
           ui.bg.setFillStyle(0x4ae290);
           ui.label.setText('✅ 검토 완료');
-          ui.label.setColor('#0e0e12');
           ui.sub.setText(`탭해서 강화 시도 · lv ${state.level}`);
-          ui.sub.setColor('#0e0e12');
           ui.gauge.width = ui.gaugeMaxWidth;
           break;
         }
