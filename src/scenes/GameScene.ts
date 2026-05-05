@@ -370,6 +370,9 @@ export class GameScene extends Phaser.Scene {
     if (this.jobKey === 'planner') {
       this.enhanceBtn.setVisible(false);
       this.buildPlannerSlots(cx, 990);
+    } else {
+      // dev/designer: 일괄 ×10 강화 버튼 (메인 버튼 좌측)
+      this.buildBatchEnhanceButton(120, 990);
     }
     // L3/L4: 야근/자동 강화 토글 (조건 충족 시)
     this.buildModeToggles(cx, 1075);
@@ -905,6 +908,159 @@ export class GameScene extends Phaser.Scene {
     this.enhanceBtnSub = sub;
   }
 
+  // -------- 일괄 강화 ×10 (dev/designer) --------
+
+  private buildBatchEnhanceButton(x: number, y: number): void {
+    const w = 140;
+    const h = 96;
+    const container = this.add.container(x, y);
+    const bg = this.add
+      .rectangle(0, 0, w, h, 0xa370ff, 1)
+      .setStrokeStyle(3, 0xffffff, 0.2);
+    const label = this.add
+      .text(0, -16, '🔥 ×10', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '22px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5);
+    const sub = this.add
+      .text(0, 18, '일괄 강화', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '13px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5);
+    container.add([bg, label, sub]);
+    container.setSize(w, h);
+    container.setInteractive({ useHandCursor: true });
+    container.on('pointerover', () => bg.setStrokeStyle(3, 0xffffff, 0.6));
+    container.on('pointerout', () => bg.setStrokeStyle(3, 0xffffff, 0.2));
+    container.on('pointerdown', () => this.handleBatchEnhance(10));
+  }
+
+  /**
+   * 본체 강화를 N회 일괄 시도. 빌드업/이펙트 스킵, 끝에 요약만 표시.
+   * 도중에 폭사하면 즉시 중단.
+   */
+  private handleBatchEnhance(times: number): void {
+    if (this.isEnhancing) return;
+    if (!this.alive) {
+      this.restartCharacter();
+      return;
+    }
+    if (this.level >= MAX_LEVEL) {
+      this.flashResultText('이미 최고 단계입니다.');
+      return;
+    }
+    const gate = checkSynergyGate(this.level, this.otherJobsBestAvg());
+    if (!gate.ok) {
+      this.flashResultText(`🔒 팀 시너지 부족 — 다른 두 직군 평균 ${gate.required.toFixed(0)}단계 필요`);
+      return;
+    }
+    let totalCost = 0;
+    let levelsGained = 0;
+    let successCount = 0;
+    let critCount = 0;
+    let failCount = 0;
+    let totalReward = 0;
+    let destroyed = false;
+    const startLevel = this.level;
+    for (let i = 0; i < times; i++) {
+      if (this.level >= MAX_LEVEL) break;
+      let cost = costFor(this.level, this.jobKey);
+      if (this.save.yagunMode) cost *= 2;
+      if (this.save.gold < cost) break;
+      this.save.gold -= cost;
+      totalCost += cost;
+      const mainBonus = this.currentMainBonus() + this.prestigeRateBonus() + this.teamRateBonus();
+      const comboBonus = this.currentComboBonus();
+      const result = tryEnhance(
+        this.level,
+        {},
+        undefined,
+        mainBonus,
+        comboBonus,
+        this.jobKey,
+        this.save.quantumCoreEnabled && this.save.bestByJob[this.jobKey] >= 800,
+      );
+      const bucket = bucketOf(result);
+      let reward = rewardFor(bucket, cost);
+      if (result.kind === 'success' && result.modifier === 'mega') reward = Math.round(reward * 5);
+      else if (result.kind === 'success' && result.modifier === 'critical') reward = Math.round(reward * 3);
+      if (result.kind === 'success' && this.save.yagunMode) reward = Math.round(reward * 3);
+      reward = Math.round(reward * officeMultiplier(this.save.officeTier));
+      this.save.gold += reward;
+      totalReward += reward;
+      if (result.kind === 'success') {
+        this.level = result.to;
+        if (result.modifier === 'critical' || result.modifier === 'mega') critCount += 1;
+        successCount += 1;
+        this.save.combo += 1;
+        this.save.comboLastAt = Date.now();
+        this.save.quarterlyKpiStreak += 1;
+        if (this.save.quarterlyKpiStreak >= 10) {
+          this.save.quarterlyKpiStreak = 0;
+          this.save.quarterlyKpiTotal += 1;
+        }
+      } else if (result.kind === 'fail-down') {
+        let next = result.to;
+        if (this.save.yagunMode) next = Math.max(0, next - 2);
+        this.level = next;
+        failCount += 1;
+        this.save.combo = 0;
+        this.save.quarterlyKpiStreak = 0;
+      } else if (result.kind === 'fail-stay') {
+        failCount += 1;
+        this.save.combo = 0;
+        this.save.quarterlyKpiStreak = 0;
+      } else if (result.kind === 'destroy') {
+        this.alive = false;
+        destroyed = true;
+        const lost = Math.floor(this.save.gold * 0.3);
+        this.save.gold -= lost;
+        this.save.combo = 0;
+        this.save.quarterlyKpiStreak = 0;
+        break;
+      }
+    }
+    levelsGained = this.level - startLevel;
+    const prevBest = this.save.bestByJob[this.jobKey];
+    if (this.level > prevBest) {
+      this.save.bestByJob[this.jobKey] = this.level;
+      const ms = milestonesReached(prevBest, this.level);
+      ms.forEach((m) => this.applyMilestone(m));
+      this.applyDenseLevelRewards(prevBest, this.level);
+    }
+    if (this.level > this.save.stats.highestLevel) {
+      this.save.stats.highestLevel = this.level;
+    }
+    this.save.stats.totalAttempts += successCount + failCount;
+    this.save.stats.totalSuccess += successCount;
+    this.save.stats.totalFail += failCount;
+    if (destroyed) this.save.stats.totalDestroyed += 1;
+    this.syncProgress();
+    persistSave(this.save);
+    this.scheduleCloudPush();
+    this.refreshAll();
+    if (destroyed) {
+      this.characterShape.setFillStyle(0x3a3a44);
+      this.characterShape.setAlpha(0.4);
+      this.levelText.setAlpha(0.5);
+    }
+    const lines: string[] = [];
+    lines.push(`🔥 ×${times} 일괄 강화 결과`);
+    lines.push(`성공 ${successCount}회 (크리 ${critCount}) · 실패 ${failCount}회`);
+    lines.push(`+${levelsGained}단계 · 비용 ${this.fmtGold(totalCost)} · 환급 ${this.fmtGold(totalReward)}`);
+    if (destroyed) lines.push('💥 도중 폭사 — 다시 시작 필요');
+    this.resultText.setText(lines.join('\n'));
+    this.resultText.setColor(destroyed ? '#e24a4a' : (levelsGained > 0 ? '#9af0a8' : '#e2c84a'));
+    if (levelsGained > 0) {
+      this.cameras.main.flash(180, 80, 200, 100);
+    }
+  }
+
   // ============ L0: 분기 KPI 진행 바 ============
 
   private kpiBar?: Phaser.GameObjects.Rectangle;
@@ -987,14 +1143,42 @@ export class GameScene extends Phaser.Scene {
     this.autoEnhanceTimer = undefined;
     if (!this.save.autoEnhanceEnabled) return;
     if (!this.alive) return;
+    // planner는 1초마다 슬롯 점검 (start/claim), dev/designer는 5초마다 일반 강화
+    const interval = this.jobKey === 'planner' ? 1000 : 5000;
     this.autoEnhanceTimer = this.time.addEvent({
-      delay: 5000,
+      delay: interval,
       loop: true,
       callback: () => {
         if (this.isEnhancing) return;
         if (!this.alive) return;
         if (this.level >= MAX_LEVEL) return;
-        // 자동: 가격 체크만 통과하면 시도
+
+        // planner: 슬롯 자동 start + claim
+        if (this.jobKey === 'planner') {
+          const now = Date.now();
+          // 1) ready 슬롯 있으면 claim
+          const readyIdx = this.save.plannerSlots.findIndex(
+            (s) => plannerSlotState(s, now).kind === 'ready',
+          );
+          if (readyIdx >= 0) {
+            this.claimPlannerSlot(readyIdx);
+            return;
+          }
+          // 2) 빈 슬롯 있으면 start (synergy gate + 비용 OK 시)
+          const gate = checkSynergyGate(this.level, this.otherJobsBestAvg());
+          if (!gate.ok) return;
+          const cost = plannerSlotCost(this.level);
+          if (this.save.gold < cost) return;
+          const emptyIdx = this.save.plannerSlots.findIndex(
+            (s) => plannerSlotState(s, now).kind === 'empty',
+          );
+          if (emptyIdx >= 0) {
+            this.tryStartPlannerSlot(emptyIdx);
+          }
+          return;
+        }
+
+        // dev/designer: 일반 강화 자동 시도
         const cost = this.save.yagunMode ? costFor(this.level, this.jobKey) * 2 : costFor(this.level, this.jobKey);
         if (this.save.gold < cost) return;
         this.handlePrimaryAction();

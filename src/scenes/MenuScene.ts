@@ -1589,10 +1589,12 @@ export class MenuScene extends Phaser.Scene {
           `${def.successMessage}\n+⭐ ${PROJECT_SUCCESS_PRESTIGE} · 💰 +${reward.toLocaleString()}${hireMessage}`,
         );
         result.setColor('#9af0a8');
+        this.playProjectSuccessFx();
       } else {
         save.gold += consol;
         result.setText(`${def.failureMessage}\n💰 +${consol.toLocaleString()}`);
         result.setColor('#e2904a');
+        this.playProjectFailFx();
       }
       persistSave(save);
       okBg.disableInteractive();
@@ -1607,6 +1609,107 @@ export class MenuScene extends Phaser.Scene {
     cancelBg.on('pointerdown', () => {
       close();
       if (resolved) this.scene.restart();
+    });
+  }
+
+  // -------- 프로젝트 출시 이펙트 (아이템 강화와 동일 메커니즘) --------
+
+  /** 프로젝트 출시 성공 — ring 3겹 + 파티클 폭발 + 카메라 플래시 + 흔들림 */
+  private playProjectSuccessFx(): void {
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const D = 320;
+    const color = 0xffd23f; // 골드 (출시 성공)
+
+    // Ring 3겹 wave (스태거)
+    const ringConfig = [
+      { delay: 0, start: 50, end: 480 },
+      { delay: 80, start: 80, end: 380 },
+      { delay: 160, start: 110, end: 280 },
+    ];
+    ringConfig.forEach((rc) => {
+      this.time.delayedCall(rc.delay, () => {
+        const ring = this.add
+          .circle(cx, cy, rc.start, color, 0)
+          .setStrokeStyle(8, color, 1)
+          .setDepth(D);
+        this.tweens.add({
+          targets: ring,
+          radius: rc.end,
+          alpha: 0,
+          duration: 600,
+          ease: 'Quart.easeOut',
+          onComplete: () => ring.destroy(),
+        });
+      });
+    });
+
+    // 사방 파티클 폭발 (60개)
+    for (let i = 0; i < 60; i++) {
+      const angle = (i / 60) * Math.PI * 2 + Math.random() * 0.3;
+      const distance = 350 + Math.random() * 100;
+      const dotColor = i % 3 === 0 ? 0xffffff : (i % 3 === 1 ? color : 0x9af0a8);
+      const size = 6 + Math.random() * 4;
+      const dot = this.add.circle(cx, cy, size, dotColor, 1).setDepth(D);
+      this.tweens.add({
+        targets: dot,
+        x: cx + Math.cos(angle) * distance,
+        y: cy + Math.sin(angle) * distance,
+        alpha: 0,
+        scale: 0.3,
+        duration: 800 + Math.random() * 200,
+        ease: 'Quart.easeOut',
+        onComplete: () => dot.destroy(),
+      });
+    }
+
+    // 12방향 빛줄기
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI * 2;
+      const ray = this.add
+        .rectangle(cx, cy, 380, 6, 0xffffff, 1)
+        .setOrigin(0, 0.5)
+        .setRotation(angle)
+        .setDepth(D);
+      this.tweens.add({
+        targets: ray,
+        alpha: 0,
+        scaleX: 1.4,
+        duration: 500,
+        ease: 'Quart.easeOut',
+        onComplete: () => ray.destroy(),
+      });
+    }
+
+    // 카메라 플래시 + 흔들림
+    this.cameras.main.flash(400, 255, 220, 80);
+    this.cameras.main.shake(320, 0.012);
+    // 후속 골드 플래시
+    this.time.delayedCall(180, () => {
+      this.cameras.main.flash(200, 255, 210, 80);
+    });
+  }
+
+  /** 프로젝트 출시 실패 — 작은 회색 ✕ 페이드만 (멀미 방지) */
+  private playProjectFailFx(): void {
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const t = this.add
+      .text(cx, cy, '✕', {
+        fontFamily: 'sans-serif',
+        fontSize: '40px',
+        color: '#6a6a6a',
+      })
+      .setOrigin(0.5)
+      .setDepth(320)
+      .setAlpha(0.7);
+    this.tweens.add({
+      targets: t,
+      alpha: 0,
+      y: cy - 30,
+      duration: 400,
+      ease: 'Quad.easeOut',
+      onComplete: () => t.destroy(),
     });
   }
 
