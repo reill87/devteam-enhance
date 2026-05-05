@@ -26,14 +26,21 @@ export function emptyPlannerSlots(): PlannerSlot[] {
 }
 
 /**
- * 슬롯 진행 시간 (ms). 단계가 높을수록 길어진다.
- * - lv 0: 12s
- * - lv 5: 18s
- * - lv 10: 27s
- * - lv 20: 45s
+ * 슬롯 진행 시간 (ms). 단계 sqrt 비례 → 후반부에도 합리적인 시간 유지.
+ * 3 슬롯 병렬이므로 effective attempts/min은 더 빠르다.
+ *
+ * - lv 0:    12s
+ * - lv 10:   ~25s
+ * - lv 50:   ~40s
+ * - lv 100:  ~52s
+ * - lv 200:  ~69s
+ * - lv 600:  ~110s  (1분 50초)
+ * - lv 999:  ~138s  (2분 18초)
+ *
+ * 비교: 이전 곡선 lv 600 = 912s (15분) — 너무 길었음.
  */
 export function plannerSlotDurationMs(level: number): number {
-  return Math.round(12_000 + level * 1500);
+  return Math.round(12_000 + Math.sqrt(level + 1) * 4000);
 }
 
 /**
