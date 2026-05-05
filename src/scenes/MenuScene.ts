@@ -135,7 +135,8 @@ export class MenuScene extends Phaser.Scene {
     this.buildTeamPanel(cx, 920, save);
 
     // 팀 패널이 2×6 큰 그리드라 콘텐츠가 화면을 넘어감 → 프로젝트/푸터를 아래로
-    const teamBottom = 920 + 64 + 6 * 64 + 5 * 10 + 30; // 헤더 60 + 6행 셀 + 간격 + 마진
+    // 920(헤더) + 90(grid 오프셋) + 6×64(셀) + 5×10(간격) + 32(마지막 셀 하단) + 30(마진)
+    const teamBottom = 920 + 90 + 6 * 64 + 5 * 10 + 32 + 30;
     const projectY = teamBottom + 60;
     const footerY = projectY + 110;
     this.buildProjectLaunchButton(cx, projectY, save);
@@ -1078,7 +1079,8 @@ export class MenuScene extends Phaser.Scene {
     const gap = 10;
     const totalW = cols * cellW + (cols - 1) * gap;
     const startX = cx - totalW / 2 + cellW / 2;
-    const gridStartY = y + 60;
+    // 헤더(y) + sub-stats(y+24) 아래로 충분히 띄움
+    const gridStartY = y + 90;
     for (let i = 0; i < cols * rows; i++) {
       const col = i % cols;
       const row = Math.floor(i / cols);
