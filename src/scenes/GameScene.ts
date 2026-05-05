@@ -1889,51 +1889,6 @@ export class GameScene extends Phaser.Scene {
 
   // -------- 장비 강화 이펙트 (슬롯별 차별화) --------
 
-  /**
-   * 장비 강화 buildup — 슬롯별 색상의 파티클이 중앙으로 모이며 빛남.
-   * onComplete 콜백으로 결과 처리.
-   */
-  private playEquipBuildup(slot: EquipSlot, onComplete: () => void): void {
-    const color = SLOT_EFFECT_COLOR[slot];
-    const cx = GAME_WIDTH / 2;
-    const cy = 720;
-    const duration = 600;
-
-    // 중앙 빛나는 코어
-    const core = this.add.circle(cx, cy, 0, color, 0.85).setDepth(280);
-    this.tweens.add({
-      targets: core,
-      radius: 60,
-      duration,
-      ease: 'Quart.easeIn',
-    });
-
-    // 주변 파티클이 중앙으로 모임
-    const particleCount = 10;
-    for (let i = 0; i < particleCount; i++) {
-      const angle = (i / particleCount) * Math.PI * 2;
-      const startR = 200;
-      const dot = this.add
-        .circle(cx + Math.cos(angle) * startR, cy + Math.sin(angle) * startR, 8, color, 1)
-        .setDepth(281);
-      this.tweens.addCounter({
-        from: 0, to: 1, duration, ease: 'Quart.easeIn',
-        onUpdate: (tw) => {
-          const t = tw.getValue() ?? 0;
-          const r = startR * (1 - t);
-          dot.x = cx + Math.cos(angle) * r;
-          dot.y = cy + Math.sin(angle) * r;
-        },
-        onComplete: () => dot.destroy(),
-      });
-    }
-
-    this.time.delayedCall(duration, () => {
-      core.destroy();
-      onComplete();
-    });
-  }
-
   /** 장비 강화 성공 이펙트 — 슬롯 색상 + 크리티컬 시 화면 플래시 */
   private playEquipSuccessFx(slot: EquipSlot, isCrit: boolean): void {
     const color = SLOT_EFFECT_COLOR[slot];
@@ -2835,35 +2790,32 @@ export class GameScene extends Phaser.Scene {
       const cost = equipCostFor(lv);
       if (this.save.gold < cost) return;
       this.save.gold -= cost;
-      // 슬롯별 buildup 이펙트 (color 차별화)
-      this.playEquipBuildup(slot, () => {
-        const result = tryEnhanceEquip(lv);
-        if (result.kind === 'success') {
-          // 5% 크리티컬 — 슬롯 강화 +2 단계
-          const isCrit = Math.random() < 0.05 && result.to + 1 <= EQUIP_MAX_LEVEL;
-          const finalTo = isCrit ? result.to + 1 : result.to;
-          this.save.equipment[this.jobKey][slot] = finalTo;
-          this.playEquipSuccessFx(slot, isCrit);
-          if (isCrit) {
-            resultLine.setText(`🌟 크리티컬! ${SLOT_EFFECT_LABEL[slot]} Lv ${result.from} → ${finalTo} (+2)`);
-            resultLine.setColor('#ffd23f');
-          } else {
-            resultLine.setText(`✨ ${SLOT_EFFECT_LABEL[slot]} 성공! Lv ${result.from} → ${finalTo}`);
-            resultLine.setColor('#4ae290');
-          }
-        } else if (result.kind === 'fail-stay') {
-          this.playEquipFailFx();
-          resultLine.setText('실패. 단계는 유지됩니다.');
-          resultLine.setColor('#e2c84a');
+      // 즉시 처리 (모달 위 buildup 파티클이 freeze처럼 보이는 문제 회피)
+      const result = tryEnhanceEquip(lv);
+      if (result.kind === 'success') {
+        const isCrit = Math.random() < 0.05 && result.to + 1 <= EQUIP_MAX_LEVEL;
+        const finalTo = isCrit ? result.to + 1 : result.to;
+        this.save.equipment[this.jobKey][slot] = finalTo;
+        this.playEquipSuccessFx(slot, isCrit);
+        if (isCrit) {
+          resultLine.setText(`🌟 크리티컬! ${SLOT_EFFECT_LABEL[slot]} Lv ${result.from} → ${finalTo} (+2)`);
+          resultLine.setColor('#ffd23f');
         } else {
-          resultLine.setText('최고 단계 달성');
+          resultLine.setText(`✨ ${SLOT_EFFECT_LABEL[slot]} 성공! Lv ${result.from} → ${finalTo}`);
+          resultLine.setColor('#4ae290');
         }
-        persistSave(this.save);
-        refresh();
-        this.refreshEquipSlots();
-        this.refreshTopBar();
-        this.refreshRateText();
-      });
+      } else if (result.kind === 'fail-stay') {
+        this.playEquipFailFx();
+        resultLine.setText('실패. 단계는 유지됩니다.');
+        resultLine.setColor('#e2c84a');
+      } else {
+        resultLine.setText('최고 단계 달성');
+      }
+      persistSave(this.save);
+      refresh();
+      this.refreshEquipSlots();
+      this.refreshTopBar();
+      this.refreshRateText();
     });
 
     refresh();
