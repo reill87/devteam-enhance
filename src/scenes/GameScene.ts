@@ -1889,69 +1889,180 @@ export class GameScene extends Phaser.Scene {
 
   // -------- 장비 강화 이펙트 (슬롯별 차별화) --------
 
-  /** 장비 강화 성공 이펙트 — 슬롯 색상 ring + 파티클 폭발 + 카메라 플래시 */
+  /**
+   * 장비 강화 성공 이펙트 — 매우 화려하게.
+   * 일반 성공도 ring 3겹, 30 파티클, 빛줄기, "+1" 떠오름.
+   * 크리티컬은 그 위에 골드 폭격 + 거대 컷인 + 5겹 ring + 60 파티클.
+   */
   private playEquipSuccessFx(slot: EquipSlot, isCrit: boolean): void {
     const color = SLOT_EFFECT_COLOR[slot];
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT / 2;
-    const ringDepth = 320;
+    const D = 320; // depth
 
-    // 1) 외부 ring (슬롯 색)
-    const ring = this.add
-      .circle(cx, cy, 80, color, 0)
-      .setStrokeStyle(10, color, 1)
-      .setDepth(ringDepth);
-    this.tweens.add({
-      targets: ring,
-      radius: isCrit ? 420 : 260,
-      alpha: 0,
-      duration: isCrit ? 800 : 500,
-      ease: 'Quart.easeOut',
-      onComplete: () => ring.destroy(),
+    // 1) Ring 다중 wave — 슬롯 색 (스태거 시작)
+    const ringConfig = isCrit
+      ? [{ delay: 0, start: 50, end: 480 }, { delay: 80, start: 80, end: 380 }, { delay: 160, start: 110, end: 280 }]
+      : [{ delay: 0, start: 60, end: 280 }, { delay: 100, start: 90, end: 200 }];
+    ringConfig.forEach((rc) => {
+      this.time.delayedCall(rc.delay, () => {
+        const ring = this.add
+          .circle(cx, cy, rc.start, color, 0)
+          .setStrokeStyle(8, color, 1)
+          .setDepth(D);
+        this.tweens.add({
+          targets: ring,
+          radius: rc.end,
+          alpha: 0,
+          duration: 600,
+          ease: 'Quart.easeOut',
+          onComplete: () => ring.destroy(),
+        });
+      });
     });
 
-    // 2) 크리티컬용 두 번째 골드 ring
+    // 2) 크리티컬 골드 ring 추가 2겹
     if (isCrit) {
-      const ring2 = this.add
-        .circle(cx, cy, 50, 0xffd23f, 0)
-        .setStrokeStyle(6, 0xffd23f, 1)
-        .setDepth(ringDepth);
-      this.tweens.add({
-        targets: ring2,
-        radius: 320,
-        alpha: 0,
-        duration: 700,
-        ease: 'Quart.easeOut',
-        onComplete: () => ring2.destroy(),
+      [60, 200].forEach((start, i) => {
+        this.time.delayedCall(40 + i * 100, () => {
+          const r = this.add
+            .circle(cx, cy, start, 0xffd23f, 0)
+            .setStrokeStyle(10, 0xffd23f, 1)
+            .setDepth(D);
+          this.tweens.add({
+            targets: r,
+            radius: start + 280,
+            alpha: 0,
+            duration: 700,
+            ease: 'Quart.easeOut',
+            onComplete: () => r.destroy(),
+          });
+        });
       });
     }
 
-    // 3) 사방으로 퍼지는 파티클 (12개 외부 ↔ 24개 크리티컬)
-    const particleCount = isCrit ? 24 : 12;
+    // 3) 사방 파티클 폭발 (일반 30, 크리티컬 60)
+    const particleCount = isCrit ? 60 : 30;
     for (let i = 0; i < particleCount; i++) {
-      const angle = (i / particleCount) * Math.PI * 2;
-      const startX = cx;
-      const startY = cy;
-      const distance = isCrit ? 320 + Math.random() * 60 : 200 + Math.random() * 40;
-      const dotColor = isCrit && i % 2 === 0 ? 0xffd23f : color;
-      const dot = this.add.circle(startX, startY, isCrit ? 8 : 6, dotColor, 1).setDepth(ringDepth);
+      const angle = (i / particleCount) * Math.PI * 2 + Math.random() * 0.3;
+      const distance = isCrit ? 350 + Math.random() * 100 : 220 + Math.random() * 80;
+      const dotColor = isCrit
+        ? (i % 3 === 0 ? 0xffd23f : i % 3 === 1 ? color : 0xffffff)
+        : (i % 2 === 0 ? color : 0xffffff);
+      const size = isCrit ? 6 + Math.random() * 4 : 4 + Math.random() * 3;
+      const dot = this.add.circle(cx, cy, size, dotColor, 1).setDepth(D);
       this.tweens.add({
         targets: dot,
-        x: startX + Math.cos(angle) * distance,
-        y: startY + Math.sin(angle) * distance,
+        x: cx + Math.cos(angle) * distance,
+        y: cy + Math.sin(angle) * distance,
         alpha: 0,
-        duration: isCrit ? 700 : 500,
+        scale: 0.3,
+        duration: isCrit ? 800 + Math.random() * 200 : 600 + Math.random() * 150,
         ease: 'Quart.easeOut',
         onComplete: () => dot.destroy(),
       });
     }
 
-    // 4) 카메라 플래시 + 흔들림
+    // 4) 빛줄기 (8방향 직선 빛이 외부로)
+    const rayCount = isCrit ? 12 : 8;
+    for (let i = 0; i < rayCount; i++) {
+      const angle = (i / rayCount) * Math.PI * 2;
+      const len = isCrit ? 380 : 240;
+      const ray = this.add
+        .rectangle(cx, cy, len, isCrit ? 6 : 4, isCrit ? 0xffffff : color, 1)
+        .setOrigin(0, 0.5)
+        .setRotation(angle)
+        .setDepth(D);
+      this.tweens.add({
+        targets: ray,
+        alpha: 0,
+        scaleX: 1.4,
+        duration: isCrit ? 500 : 350,
+        ease: 'Quart.easeOut',
+        onComplete: () => ray.destroy(),
+      });
+    }
+
+    // 5) 떠오르는 "+N" 텍스트
+    const bonusText = this.add
+      .text(cx, cy - 40, isCrit ? '+2' : '+1', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: isCrit ? '64px' : '44px',
+        color: isCrit ? '#ffd23f' : '#ffffff',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5)
+      .setDepth(D + 1)
+      .setAlpha(0)
+      .setScale(0.5);
+    this.tweens.add({
+      targets: bonusText,
+      alpha: 1,
+      scale: 1.2,
+      duration: 200,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: bonusText,
+          y: cy - 140,
+          alpha: 0,
+          duration: 700,
+          ease: 'Quart.easeOut',
+          onComplete: () => bonusText.destroy(),
+        });
+      },
+    });
+
+    // 6) 크리티컬 컷인 텍스트
+    if (isCrit) {
+      const crit = this.add
+        .text(cx, cy + 80, '🌟 크리티컬', {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '52px',
+          color: '#ffd23f',
+          fontStyle: 'bold',
+          stroke: '#000000',
+          strokeThickness: 8,
+        })
+        .setOrigin(0.5)
+        .setDepth(D + 1)
+        .setAlpha(0)
+        .setScale(0.3);
+      this.tweens.add({
+        targets: crit,
+        alpha: 1,
+        scale: 1.1,
+        duration: 200,
+        ease: 'Back.easeOut',
+        onComplete: () => {
+          this.time.delayedCall(800, () => {
+            this.tweens.add({
+              targets: crit,
+              alpha: 0,
+              scale: 0.8,
+              duration: 400,
+              onComplete: () => crit.destroy(),
+            });
+          });
+        },
+      });
+    }
+
+    // 7) 카메라 플래시 + 흔들림 (강화)
     const r = (color >> 16) & 0xff;
     const g = (color >> 8) & 0xff;
     const b = color & 0xff;
-    this.cameras.main.flash(isCrit ? 320 : 180, r, g, b);
-    this.cameras.main.shake(isCrit ? 240 : 100, isCrit ? 0.008 : 0.003);
+    this.cameras.main.flash(isCrit ? 400 : 240, r, g, b);
+    this.cameras.main.shake(isCrit ? 320 : 160, isCrit ? 0.012 : 0.005);
+
+    // 8) 크리티컬 — 추가 후속 골드 플래시
+    if (isCrit) {
+      this.time.delayedCall(180, () => {
+        this.cameras.main.flash(200, 255, 210, 80);
+      });
+    }
   }
 
   /** 장비 강화 실패 이펙트 — 어두운 plash + 흔들림 + 파편 */
