@@ -10,10 +10,11 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
-    // 14개 아이콘 SVG 프리로드 (key 컨벤션: icon-{category}-{name})
+    // 아이콘 SVG 프리로드 (key 컨벤션: icon-{category}-{name})
     const ITEMS = ['protect', 'blessing', 'super_blessing', 'masterhand', 'revive', 'luck'];
     const INCOMES = ['work', 'side_project', 'blog', 'scout', 'headhunter'];
     const EQUIPS = ['main', 'sub', 'accessory'];
+    const JOBS = ['planner', 'designer', 'developer'];
     const opts = { width: 64, height: 64 };
     ITEMS.forEach((k) =>
       this.load.svg(`icon-item-${k}`, `assets/icons/items/${k}.svg`, opts),
@@ -23,6 +24,9 @@ export class BootScene extends Phaser.Scene {
     );
     EQUIPS.forEach((k) =>
       this.load.svg(`icon-equip-${k}`, `assets/icons/equip/${k}.svg`, opts),
+    );
+    JOBS.forEach((k) =>
+      this.load.svg(`icon-job-${k}`, `assets/icons/jobs/${k}.svg`, opts),
     );
   }
 

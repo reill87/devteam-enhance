@@ -980,16 +980,21 @@ export class MenuScene extends Phaser.Scene {
 
     // 점유된 슬롯 — 멤버 표시
     const jobColor = JOB_COLOR[member.jobKey];
-    const jobEmoji = JOB_EMOJI[member.jobKey];
     const bg = this.add
       .rectangle(x, y, w, h, 0x2a2a32)
       .setStrokeStyle(2, jobColor, 0.7);
-    this.add
-      .text(x - w / 2 + 14, y, jobEmoji, {
-        fontFamily: 'sans-serif',
-        fontSize: '20px',
-      })
-      .setOrigin(0, 0.5);
+    // 직군 SVG 아이콘 (좌측). 미로드 시 emoji fallback.
+    const iconKey = `icon-job-${member.jobKey}`;
+    if (this.textures.exists(iconKey)) {
+      this.add.image(x - w / 2 + 22, y, iconKey).setDisplaySize(28, 28);
+    } else {
+      this.add
+        .text(x - w / 2 + 14, y, JOB_EMOJI[member.jobKey], {
+          fontFamily: 'sans-serif',
+          fontSize: '20px',
+        })
+        .setOrigin(0, 0.5);
+    }
     this.add
       .text(x - w / 2 + 40, y - 9, member.name, {
         fontFamily: 'Pretendard, sans-serif',
@@ -1882,6 +1887,14 @@ export class MenuScene extends Phaser.Scene {
       .setStrokeStyle(3, def.color, 0.6);
     const accent = this.add.rectangle(-w / 2 + 10, 0, 8, h - 20, def.color);
 
+    // 직군 SVG 아이콘 (우측 상단). 미로드 시 emoji fallback.
+    const iconKey = `icon-job-${key}`;
+    const iconObj: Phaser.GameObjects.GameObject = this.textures.exists(iconKey)
+      ? this.add.image(w / 2 - 80, 0, iconKey).setDisplaySize(96, 96)
+      : this.add
+          .text(w / 2 - 80, 0, JOB_EMOJI[key], { fontFamily: 'sans-serif', fontSize: '60px' })
+          .setOrigin(0.5);
+
     const label = this.add
       .text(-w / 2 + 30, -h / 2 + 16, def.label, {
         fontFamily: 'Pretendard, sans-serif',
@@ -1933,7 +1946,7 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(1, 0.5);
 
-    container.add([bg, accent, label, stateText, bestText, synergy, arrow]);
+    container.add([bg, accent, iconObj, label, stateText, bestText, synergy, arrow]);
     container.setSize(w, h);
     container.setInteractive({ useHandCursor: true });
     container.on('pointerover', () => bg.setStrokeStyle(3, def.color, 1));
