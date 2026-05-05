@@ -142,7 +142,9 @@ export class GameScene extends Phaser.Scene {
 
   // 콤보 / 타이밍 게이지 / 긴급 알림
   private comboText!: Phaser.GameObjects.Text;
+  private comboPanel?: Phaser.GameObjects.Graphics;
   private teamSynergyText!: Phaser.GameObjects.Text;
+  private teamSynergyPanel?: Phaser.GameObjects.Graphics;
   private currentTimingBonus = 0;
   private timingGaugeObjs: Phaser.GameObjects.GameObject[] = [];
   private timingGaugeStop?: () => number;
@@ -270,14 +272,15 @@ export class GameScene extends Phaser.Scene {
     // 캐릭터 좌측에 장비 슬롯 3개 (세로 배치)
     this.buildEquipSlots(80, [410, 480, 550]);
 
-    // 캐릭터 우측 — 콤보 카드 (작게)
-    makePanel(this, GAME_WIDTH - 80, 480, 110, 110, {
+    // 캐릭터 우측 — 콤보 카드 (콤보 있을 때만 표시)
+    this.comboPanel = makePanel(this, GAME_WIDTH - 80, 480, 110, 110, {
       fill: COLORS.bgPanel,
       fillAlpha: 0.9,
       border: COLORS.orange,
       borderAlpha: 0.4,
       radius: 12,
     });
+    this.comboPanel.setVisible(false);
     this.comboText = this.add
       .text(GAME_WIDTH - 80, 480, '', {
         fontFamily: 'Pretendard, sans-serif',
@@ -288,14 +291,15 @@ export class GameScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // 캐릭터 우측 — 팀 시너지 카드 (콤보 아래)
-    makePanel(this, GAME_WIDTH - 80, 605, 130, 90, {
+    // 캐릭터 우측 — 팀 시너지 카드 (시너지 있을 때만 표시)
+    this.teamSynergyPanel = makePanel(this, GAME_WIDTH - 80, 605, 130, 90, {
       fill: COLORS.bgPanel,
       fillAlpha: 0.9,
       border: COLORS.success,
       borderAlpha: 0.35,
       radius: 12,
     });
+    this.teamSynergyPanel.setVisible(false);
     this.teamSynergyText = this.add
       .text(GAME_WIDTH - 80, 605, '', {
         fontFamily: 'Pretendard, sans-serif',
@@ -409,7 +413,6 @@ export class GameScene extends Phaser.Scene {
       callback: () => this.maybeFireEmergency(),
     });
     this.setupAutoWork();
-    this.setupIdleParticles();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.regenTimer?.remove(false);
@@ -737,15 +740,19 @@ export class GameScene extends Phaser.Scene {
   // -------- 상단바 (골드, 인벤, 상점) --------
 
   private buildTopBar(): void {
+    // 상단바: 2줄 구성 (총 130px)
+    //   Row 1 (0~70):  골드/회복 텍스트(좌) + 상점 버튼(우)
+    //   Row 2 (70~130): 인벤 슬롯 10개 (가로 전체)
     this.add
-      .rectangle(0, 0, GAME_WIDTH, 80, 0x1a1a22)
+      .rectangle(0, 0, GAME_WIDTH, 130, 0x1a1a22)
       .setOrigin(0)
       .setDepth(0);
 
+    // Row 1: 골드 + 회복
     this.goldText = this.add
-      .text(20, 32, '', {
+      .text(20, 26, '', {
         fontFamily: 'Pretendard, sans-serif',
-        fontSize: '28px',
+        fontSize: '24px',
         color: '#ffd23f',
         fontStyle: 'bold',
       })
@@ -753,32 +760,23 @@ export class GameScene extends Phaser.Scene {
     this.goldText.setInteractive({ useHandCursor: true });
     this.goldText.on('pointerdown', () => this.toggleCurrency());
     this.regenText = this.add
-      .text(20, 60, '', {
+      .text(20, 52, '', {
         fontFamily: 'Pretendard, sans-serif',
-        fontSize: '15px',
+        fontSize: '14px',
         color: '#9aa0a6',
       })
       .setOrigin(0, 0.5);
 
-    // 인벤 슬롯 + 상점 버튼 (우측 정렬, 가로 한 줄)
-    const slotW = 52;
-    const slotH = 60;
-    const slotGap = 3;
-    const shopBtnW = 60;
-    const rightPad = 12;
-    const shopX = GAME_WIDTH - rightPad - shopBtnW / 2;
-
-    let slotCenterX = shopX - shopBtnW / 2 - slotGap - slotW / 2;
-    [...ITEM_KEYS].reverse().forEach((key) => {
-      this.buildInventorySlot(slotCenterX, 40, slotW, slotH, key);
-      slotCenterX -= slotW + slotGap;
-    });
-
+    // Row 1 우측: 상점 버튼
+    const shopBtnW = 70;
+    const shopBtnH = 56;
+    const shopX = GAME_WIDTH - 12 - shopBtnW / 2;
+    const shopY = 36;
     const shopBg = this.add
-      .rectangle(shopX, 40, shopBtnW, slotH, 0x4a90e2)
+      .rectangle(shopX, shopY, shopBtnW, shopBtnH, 0x4a90e2)
       .setStrokeStyle(2, 0xffffff, 0.3);
-    const shopText = this.add
-      .text(shopX, 40, '🏪', {
+    this.add
+      .text(shopX, shopY, '🏪', {
         fontFamily: 'sans-serif',
         fontSize: '28px',
       })
@@ -787,7 +785,20 @@ export class GameScene extends Phaser.Scene {
     shopBg.on('pointerdown', () => this.openShop());
     shopBg.on('pointerover', () => shopBg.setStrokeStyle(2, 0xffffff, 0.7));
     shopBg.on('pointerout', () => shopBg.setStrokeStyle(2, 0xffffff, 0.3));
-    void shopText;
+
+    // Row 2: 인벤 슬롯 10개 — 가로 전체에 균등 분포
+    const slotCount = ITEM_KEYS.length;
+    const slotH = 54;
+    const sidePad = 12;
+    const totalAvail = GAME_WIDTH - sidePad * 2;
+    const slotGap = 4;
+    const slotW = Math.floor((totalAvail - (slotCount - 1) * slotGap) / slotCount);
+    const slotY = 100;
+    const startX = sidePad + slotW / 2;
+    ITEM_KEYS.forEach((key, i) => {
+      const x = startX + i * (slotW + slotGap);
+      this.buildInventorySlot(x, slotY, slotW, slotH, key);
+    });
   }
 
   private buildInventorySlot(x: number, y: number, w: number, h: number, key: ItemKey): void {
@@ -1965,6 +1976,7 @@ export class GameScene extends Phaser.Scene {
     const clickM = this.teamClickMul();
     if (rateB === 0 && regenM === 1 && clickM === 1) {
       this.teamSynergyText.setText('');
+      this.teamSynergyPanel?.setVisible(false);
       return;
     }
     const parts: string[] = ['🏆 팀'];
@@ -1972,6 +1984,7 @@ export class GameScene extends Phaser.Scene {
     if (regenM > 1) parts.push(`회복 ×${regenM.toFixed(2)}`);
     if (clickM > 1) parts.push(`클릭 ×${clickM.toFixed(2)}`);
     this.teamSynergyText.setText(parts.join('\n'));
+    this.teamSynergyPanel?.setVisible(true);
   }
 
   private refreshDisplay(): void {
@@ -2536,8 +2549,10 @@ export class GameScene extends Phaser.Scene {
   private refreshComboText(): void {
     if (this.save.combo <= 0) {
       this.comboText.setText('');
+      this.comboPanel?.setVisible(false);
       return;
     }
+    this.comboPanel?.setVisible(true);
     const bonus = this.currentComboBonus();
     if (this.jobKey === 'developer') {
       const remaining = Math.max(
