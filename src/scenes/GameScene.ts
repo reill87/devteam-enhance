@@ -1152,6 +1152,13 @@ export class GameScene extends Phaser.Scene {
     this.scheduleCloudPush();
   }
 
+  /**
+   * 슬롯 검토 보너스 — 슬롯 claim 시 강화 성공 결과에 +1 단계 추가.
+   * 기획자 정체성: 슬롯 = "꼼꼼한 스펙 검토" → 한 번에 두 단계 도약.
+   * applyResult에서 success 처리 후 즉시 추가 적용 후 0으로 초기화.
+   */
+  private plannerSlotBonus = 0;
+
   private claimPlannerSlot(idx: number): void {
     const slot = this.save.plannerSlots[idx];
     if (!slot) return;
@@ -1162,7 +1169,8 @@ export class GameScene extends Phaser.Scene {
       this.refreshPlannerSlots();
       return;
     }
-    // 슬롯 시작 시 이미 cost 차감했으므로 0 cost로 강화 진행
+    // 슬롯 시작 시 이미 cost 차감했으므로 0 cost로 강화 진행 + 보너스 +1단계
+    this.plannerSlotBonus = 1;
     this.startEnhancement(0);
   }
 
@@ -1587,6 +1595,12 @@ export class GameScene extends Phaser.Scene {
       case 'success': {
         const prevBest = this.save.bestByJob[this.jobKey];
         this.level = result.to;
+        // 기획자 슬롯 보너스: 슬롯 claim 강화 성공 시 +1 단계 추가
+        if (this.plannerSlotBonus > 0 && this.jobKey === 'planner' && this.level < MAX_LEVEL) {
+          this.level = Math.min(MAX_LEVEL, this.level + this.plannerSlotBonus);
+          this.spawnFloatingGold(0, `📋 슬롯 검토 +${this.plannerSlotBonus}단계`, '#9af0a8');
+        }
+        this.plannerSlotBonus = 0;
         if (this.level > this.save.stats.highestLevel) {
           this.save.stats.highestLevel = this.level;
         }
@@ -1633,6 +1647,7 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case 'fail-stay':
+        this.plannerSlotBonus = 0;
         if (result.protectedBy === 'protect') {
           message = '🛡️ 보호권이 발동했습니다. 단계는 유지됩니다.';
           label = '🛡️ 방어';
@@ -1653,6 +1668,7 @@ export class GameScene extends Phaser.Scene {
         }
         break;
       case 'fail-down': {
+        this.plannerSlotBonus = 0;
         // L3: 야근 모드 시 추가로 -2 단계 (총 -3 또는 더)
         let next = result.to;
         if (this.save.yagunMode) {
@@ -1668,6 +1684,7 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case 'destroy': {
+        this.plannerSlotBonus = 0;
         this.alive = false;
         this.save.combo = 0;
         this.save.quarterlyKpiStreak = 0;
