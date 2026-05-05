@@ -12,13 +12,12 @@ export type EquipResult =
 export function equipRateAt(level: number) {
   if (level >= EQUIP_MAX_LEVEL) return null;
   if (level < EQUIP_RATES.length) return EQUIP_RATES[level];
-  // procedural: 명시 단계 이후로는 매 단계 성공률 ×0.85 / 비용 ×1.5
-  const last = EQUIP_RATES[EQUIP_RATES.length - 1];
+  // procedural: 본체 강화와 동일한 부드러운 곡선
+  // 성공률은 0.5% 캡 — lv 999까지 도달 가능 (느리지만 가능)
   const offset = level - (EQUIP_RATES.length - 1);
-  return {
-    successRate: Math.max(0.001, last.successRate * Math.pow(0.85, offset)),
-    cost: Math.round(last.cost * Math.pow(1.5, offset)),
-  };
+  const successRate = Math.max(0.005, 0.10 * Math.pow(0.96, offset));
+  const cost = Math.round(24000 * Math.pow(offset, 1.8));
+  return { successRate, cost };
 }
 
 export function equipCostFor(level: number): number {

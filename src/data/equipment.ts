@@ -32,12 +32,26 @@ export const SLOTS: Record<EquipSlot, SlotMeta> = {
   },
 };
 
+/** 슬롯별 강화 이펙트 색상 (이펙트 차별화) */
+export const SLOT_EFFECT_COLOR: Record<EquipSlot, number> = {
+  main: 0xffd23f,        // 골드
+  sub: 0x4a90e2,         // 시안
+  accessory: 0xa370ff,   // 보라
+};
+
+/** 슬롯별 강화 이펙트 라벨 (성공 시 컷인) */
+export const SLOT_EFFECT_LABEL: Record<EquipSlot, string> = {
+  main: '⚒ 도구 단조',
+  sub: '⌨ 보조 튜닝',
+  accessory: '🎧 감각 증폭',
+};
+
 export const SLOT_KEYS: readonly EquipSlot[] = ['main', 'sub', 'accessory'];
 
 /** 명시 직급명 마지막 인덱스 (11~ 이상은 마지막 직급명 + "+N" 표기) */
 export const EQUIP_TITLE_LAST_LEVEL = 10;
-/** 사실상 무제한 (procedural) — 도달 불가 큰 값 */
-export const EQUIP_MAX_LEVEL = 9999;
+/** 본체 강화와 동일하게 lv 999까지 도달 가능 */
+export const EQUIP_MAX_LEVEL = 999;
 
 /** 직군별 × 슬롯별 단계 이름 (인덱스 = 단계, 0~10 11개) */
 type SlotTitles = Record<EquipSlot, readonly string[]>;
