@@ -25,46 +25,65 @@ export type LevelRate = {
 };
 
 /**
- * 명시된 단계별 곡선 (0 → 1 ~ 14 → 15).
- * 15 이후는 rateAt()이 procedural로 계산.
+ * 명시된 단계별 곡선 (0 → 1 ~ 33 → 34).
+ * 35 이상은 rateAt()이 procedural로 계산 — idle/incremental 영역.
+ *
+ * 비용은 0.85x 완화 적용 (돈 벌기 쉬움 ↑).
  */
 export const RATES: readonly LevelRate[] = [
-  { successRate: 1.00, fail: { kind: 'stay' },            cost: 15     },  // 0 → 1
-  { successRate: 1.00, fail: { kind: 'stay' },            cost: 25     },  // 1 → 2
-  { successRate: 1.00, fail: { kind: 'stay' },            cost: 40     },  // 2 → 3
-  { successRate: 1.00, fail: { kind: 'stay' },            cost: 65     },  // 3 → 4
-  { successRate: 0.95, fail: { kind: 'stay' },            cost: 100    },  // 4 → 5
-  { successRate: 0.90, fail: { kind: 'stay' },            cost: 160    },  // 5 → 6
-  { successRate: 0.85, fail: { kind: 'stay' },            cost: 240    },  // 6 → 7
-  { successRate: 0.80, fail: { kind: 'stay' },            cost: 360    },  // 7 → 8
-  { successRate: 0.75, fail: { kind: 'stay' },            cost: 520    },  // 8 → 9
-  { successRate: 0.70, fail: { kind: 'stay' },            cost: 780    },  // 9 → 10
-  { successRate: 0.60, fail: { kind: 'stay' },            cost: 1100   },  // 10 → 11
-  { successRate: 0.50, fail: { kind: 'stay' },            cost: 1600   },  // 11 → 12
-  { successRate: 0.40, fail: { kind: 'stay' },            cost: 2300   },  // 12 → 13
-  { successRate: 0.32, fail: { kind: 'down', amount: 1 }, cost: 3300   },  // 13 → 14
-  { successRate: 0.25, fail: { kind: 'down', amount: 1 }, cost: 4800   },  // 14 → 15
-  { successRate: 0.18, fail: { kind: 'down', amount: 1 }, cost: 7000   },  // 15 → 16
-  { successRate: 0.12, fail: { kind: 'down', amount: 2 }, cost: 10000  },  // 16 → 17
-  { successRate: 0.08, fail: { kind: 'down', amount: 2 }, cost: 14500  },  // 17 → 18
-  { successRate: 0.06, fail: { kind: 'destroy' },         cost: 21000  },  // 18 → 19
-  { successRate: 0.04, fail: { kind: 'destroy' },         cost: 30000  },  // 19 → 20
-  { successRate: 0.025, fail: { kind: 'destroy' },        cost: 44000  },  // 20 → 21
-  { successRate: 0.015, fail: { kind: 'destroy' },        cost: 65000  },  // 21 → 22
+  { successRate: 1.00, fail: { kind: 'stay' },            cost: 13     },  // 0 → 1
+  { successRate: 1.00, fail: { kind: 'stay' },            cost: 21     },  // 1 → 2
+  { successRate: 1.00, fail: { kind: 'stay' },            cost: 34     },  // 2 → 3
+  { successRate: 1.00, fail: { kind: 'stay' },            cost: 55     },  // 3 → 4
+  { successRate: 0.95, fail: { kind: 'stay' },            cost: 85     },  // 4 → 5
+  { successRate: 0.90, fail: { kind: 'stay' },            cost: 136    },  // 5 → 6
+  { successRate: 0.85, fail: { kind: 'stay' },            cost: 204    },  // 6 → 7
+  { successRate: 0.80, fail: { kind: 'stay' },            cost: 306    },  // 7 → 8
+  { successRate: 0.75, fail: { kind: 'stay' },            cost: 442    },  // 8 → 9
+  { successRate: 0.70, fail: { kind: 'stay' },            cost: 663    },  // 9 → 10
+  { successRate: 0.62, fail: { kind: 'stay' },            cost: 935    },  // 10 → 11
+  { successRate: 0.55, fail: { kind: 'stay' },            cost: 1360   },  // 11 → 12
+  { successRate: 0.48, fail: { kind: 'stay' },            cost: 1955   },  // 12 → 13
+  { successRate: 0.42, fail: { kind: 'down', amount: 1 }, cost: 2805   },  // 13 → 14
+  { successRate: 0.36, fail: { kind: 'down', amount: 1 }, cost: 4080   },  // 14 → 15
+  { successRate: 0.32, fail: { kind: 'down', amount: 1 }, cost: 5950   },  // 15 → 16
+  { successRate: 0.28, fail: { kind: 'down', amount: 1 }, cost: 8500   },  // 16 → 17
+  { successRate: 0.24, fail: { kind: 'down', amount: 1 }, cost: 12325  },  // 17 → 18
+  { successRate: 0.20, fail: { kind: 'down', amount: 1 }, cost: 17850  },  // 18 → 19
+  { successRate: 0.18, fail: { kind: 'down', amount: 2 }, cost: 25500  },  // 19 → 20
+  { successRate: 0.15, fail: { kind: 'down', amount: 2 }, cost: 37400  },  // 20 → 21
+  { successRate: 0.13, fail: { kind: 'down', amount: 2 }, cost: 55250  },  // 21 → 22
+  { successRate: 0.11, fail: { kind: 'destroy' },         cost: 76500  },  // 22 → 23
+  { successRate: 0.10, fail: { kind: 'destroy' },         cost: 110000 },  // 23 → 24
+  { successRate: 0.09, fail: { kind: 'destroy' },         cost: 158000 },  // 24 → 25
+  { successRate: 0.08, fail: { kind: 'destroy' },         cost: 226000 },  // 25 → 26
+  { successRate: 0.07, fail: { kind: 'destroy' },         cost: 322000 },  // 26 → 27
+  { successRate: 0.06, fail: { kind: 'destroy' },         cost: 458000 },  // 27 → 28
+  { successRate: 0.05, fail: { kind: 'destroy' },         cost: 651000 },  // 28 → 29
+  { successRate: 0.04, fail: { kind: 'destroy' },         cost: 924000 },  // 29 → 30
+  { successRate: 0.03, fail: { kind: 'destroy' },         cost: 1310000 }, // 30 → 31
+  { successRate: 0.02, fail: { kind: 'destroy' },         cost: 1850000 }, // 31 → 32
+  { successRate: 0.015, fail: { kind: 'destroy' },        cost: 2620000 }, // 32 → 33
+  { successRate: 0.01, fail: { kind: 'destroy' },         cost: 3700000 }, // 33 → 34
+  { successRate: 0.008, fail: { kind: 'destroy' },        cost: 5240000 }, // 34 → 35
 ];
 
 /**
- * 단계별 강화 파라미터를 가져온다. RATES 배열을 넘어서면 procedural로 계산.
- * - 성공률: 마지막 단계에서 매 단계 ×0.85, 최소 0.1%
- * - 비용: 마지막 단계에서 매 단계 ×1.4
- * - 실패 시: destroy
+ * 단계별 강화 파라미터를 가져온다. RATES 배열(35개)을 넘어서면 procedural.
+ *
+ * - lv 35~999 (idle 영역): 비용은 부드러운 power law (lv^2.2),
+ *   성공률은 천천히 감소 후 0.5%로 수렴.
+ * - 실패 시: destroy (부활권/마스터핸드로 우회)
  */
 export function rateAt(level: number): LevelRate {
   if (level < RATES.length) return RATES[level];
-  const last = RATES[RATES.length - 1];
-  const offset = level - (RATES.length - 1);
-  const successRate = Math.max(0.001, last.successRate * Math.pow(0.85, offset));
-  const cost = Math.round(last.cost * Math.pow(1.55, offset));
+  // procedural ≥ 35
+  // 비용: 5.24M × ((level-34)/1)^1.05 × 1.05^(level-34)
+  //  → 부드러운 다항식 + 약한 지수
+  const offset = level - (RATES.length - 1);  // ≥ 1
+  const cost = Math.round(5_240_000 * Math.pow(offset, 1.05) * Math.pow(1.05, offset - 1));
+  // 성공률: 0.008에서 출발해 매우 천천히 감소, 0.5% 캡
+  const successRate = Math.max(0.005, 0.008 * Math.pow(0.96, offset));
   return { successRate, fail: { kind: 'destroy' }, cost };
 }
 
@@ -87,22 +106,22 @@ export function rewardFor(
   }
 }
 
-export const STARTING_GOLD = 500;
+export const STARTING_GOLD = 1000;
 
 /** 자동 골드 회복 주기 (ms) */
 export const REGEN_INTERVAL_MS = 3000;
 
 /**
- * 단계별 자동 회복량 (3초마다).
- * power law: 단계가 높을수록 회복도 커지지만 후반에 감속.
+ * 단계별 자동 회복량 (3초마다). power law 가속 (B2: ×1.5 효과).
+ * lv 0=2, lv 10=39, lv 30=274, lv 100=2783, lv 500=58k, lv 999=176k
  */
 export function regenAmount(level: number): number {
-  return Math.max(2, Math.ceil(Math.pow(level + 1, 1.3)));
+  return Math.max(2, Math.ceil(Math.pow(level + 1, 1.5) * 1.5));
 }
 
-/** 출근하기 버튼 클릭당 획득량 (power law) */
+/** 출근하기 버튼 클릭당 획득량 (B2: ×1.6 가속) */
 export function workClickReward(level: number): number {
-  return Math.max(3, Math.ceil(Math.pow(level + 1, 1.4) * 3));
+  return Math.max(4, Math.ceil(Math.pow(level + 1, 1.6) * 4));
 }
 
 // ============ 직군별 비대칭 (Phase 1A~1C) ============

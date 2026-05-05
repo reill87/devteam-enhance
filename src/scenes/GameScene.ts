@@ -57,6 +57,7 @@ import {
   designerPerRoundRate,
 } from '../data/designer';
 import { failPenaltyFor, checkSynergyGate } from '../data/rates';
+import { milestonesReached, type MilestoneDef } from '../data/milestones';
 import { COLORS, hex } from '../data/theme';
 import {
   makePanel,
@@ -1469,10 +1470,16 @@ export class GameScene extends Phaser.Scene {
     let extraNote = '';
 
     switch (result.kind) {
-      case 'success':
+      case 'success': {
+        const prevBest = this.save.bestByJob[this.jobKey];
         this.level = result.to;
         if (this.level > this.save.stats.highestLevel) {
           this.save.stats.highestLevel = this.level;
+        }
+        // 마일스톤 hit (best 갱신 시 한 번만)
+        if (this.level > prevBest) {
+          const newMilestones = milestonesReached(prevBest, this.level);
+          newMilestones.forEach((m) => this.applyMilestone(m));
         }
         this.save.combo += 1;
         this.save.comboLastAt = Date.now();
@@ -1489,6 +1496,7 @@ export class GameScene extends Phaser.Scene {
         }
         labelColor = 0x4ae290;
         break;
+      }
       case 'fail-stay':
         if (result.protectedBy === 'protect') {
           message = '🛡️ 보호권이 발동했습니다. 단계는 유지됩니다.';
@@ -1555,6 +1563,63 @@ export class GameScene extends Phaser.Scene {
     persistSave(this.save);
     this.refreshTopBar();
     this.spawnFloatingGold(reward, `${def.emoji} ${def.label}!`, '#ffd23f');
+  }
+
+  /**
+   * 마일스톤 hit 처리 — 일시불 골드/명성 보상 + 화려한 컷인.
+   * 한 번에 여러 마일스톤이 동시에 터질 수 있다 (예: 50→999 점프).
+   */
+  private applyMilestone(m: MilestoneDef): void {
+    this.save.gold += m.goldBonus;
+    this.save.prestige += m.prestigeBonus;
+    // 화면 중앙 큰 텍스트 + fade
+    const cx = GAME_WIDTH / 2;
+    const cy = 380;
+    const big = this.add
+      .text(cx, cy, m.label, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '40px',
+        color: '#ffd23f',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 6,
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setDepth(220)
+      .setAlpha(0);
+    const sub = this.add
+      .text(cx, cy + 56, `${m.message}\n💰 +${this.fmtGold(m.goldBonus)} · ⭐ +${m.prestigeBonus}`, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '18px',
+        color: '#ffffff',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(220)
+      .setAlpha(0);
+    this.cameras.main.flash(220, 255, 220, 100);
+    this.tweens.add({
+      targets: [big, sub],
+      alpha: 1,
+      duration: 250,
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        this.time.delayedCall(2200, () => {
+          this.tweens.add({
+            targets: [big, sub],
+            alpha: 0,
+            duration: 400,
+            onComplete: () => {
+              big.destroy();
+              sub.destroy();
+            },
+          });
+        });
+      },
+    });
   }
 
   private finishEnhanceTurn(): void {

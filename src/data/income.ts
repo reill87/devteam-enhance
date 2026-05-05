@@ -32,8 +32,8 @@ export const INCOMES: Record<IncomeKey, IncomeDef> = {
     unlockLevel: 0,
     type: 'click',
     param: 0,
-    // 0lv: 3, 5lv: 35, 10lv: 76, 22lv: 240
-    reward: (lv) => pow(lv, 1.4, 3),
+    // B2: ×1.3 가속. 0lv: 4, 10lv: 100, 22lv: 312
+    reward: (lv) => pow(lv, 1.4, 4),
   },
   side_project: {
     key: 'side_project',
@@ -42,8 +42,8 @@ export const INCOMES: Record<IncomeKey, IncomeDef> = {
     unlockLevel: 3,
     type: 'passive',
     param: 60_000,
-    // 3lv: 80, 10lv: 1000, 22lv: 3300
-    reward: (lv) => pow(lv, 1.5, 10),
+    // B2: ×1.3. 3lv: 104, 10lv: 1300, 22lv: 4290
+    reward: (lv) => pow(lv, 1.5, 13),
   },
   blog: {
     key: 'blog',
@@ -52,8 +52,8 @@ export const INCOMES: Record<IncomeKey, IncomeDef> = {
     unlockLevel: 5,
     type: 'click',
     param: 5_000,
-    // 5lv: 196, 10lv: 760, 22lv: 3300
-    reward: (lv) => pow(lv, 1.5, 15),
+    // B2: ×1.3. 5lv: 255, 10lv: 988, 22lv: 4290
+    reward: (lv) => pow(lv, 1.5, 20),
   },
   scout: {
     key: 'scout',
@@ -62,8 +62,8 @@ export const INCOMES: Record<IncomeKey, IncomeDef> = {
     unlockLevel: 8,
     type: 'passive',
     param: 120_000,
-    // 8lv: 1600, 15lv: 5800, 22lv: 16500
-    reward: (lv) => pow(lv, 1.6, 50),
+    // B2: ×1.3. 8lv: 2080, 15lv: 7540, 22lv: 21450
+    reward: (lv) => pow(lv, 1.6, 65),
   },
   headhunter: {
     key: 'headhunter',
@@ -72,8 +72,8 @@ export const INCOMES: Record<IncomeKey, IncomeDef> = {
     unlockLevel: 6,
     type: 'event',
     param: 0.05,
-    // 6lv: 1300, 15lv: 6500, 22lv: 21000
-    reward: (lv) => pow(lv, 1.6, 60),
+    // B2: ×1.3. 6lv: 1690, 15lv: 8450, 22lv: 27300
+    reward: (lv) => pow(lv, 1.6, 78),
   },
 };
 
