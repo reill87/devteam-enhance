@@ -24,6 +24,19 @@ import {
   projectFailureReward,
   PROJECT_SUCCESS_PRESTIGE,
 } from '../data/project';
+import {
+  teamCapForProjects,
+  hireCost,
+  fireRefund,
+  diversityMultiplier,
+  teamRevenuePerTick,
+  createMember,
+  pickAutoHireJob,
+  TEAM_REVENUE_TICK_MS,
+  MAX_TEAM_SIZE,
+  type TeamMember,
+} from '../data/team';
+import { runTeamTick } from '../systems/TeamSystem';
 
 export class MenuScene extends Phaser.Scene {
   private authLabel?: Phaser.GameObjects.Text;
@@ -37,6 +50,21 @@ export class MenuScene extends Phaser.Scene {
   create(): void {
     const cx = GAME_WIDTH / 2;
     const save = loadSave();
+
+    // Phase C: 메뉴 진입 시 팀 누적 틱 (offline 매출 + 자동 강화)
+    const tick = runTeamTick(save);
+    // Phase D: 폭사한 팀원 위로금 + 명단에서 영구 제거
+    if (tick.destroyed.length > 0) {
+      const destroyedMembers = save.team.filter((m) => tick.destroyed.includes(m.id));
+      const totalConsolation = destroyedMembers.reduce((acc, m) => acc + 2000 * m.level, 0);
+      save.gold = Math.max(0, save.gold - totalConsolation);
+      // 죽은 멤버 제거 (퇴사 처리)
+      save.team = save.team.filter((m) => !tick.destroyed.includes(m.id));
+      this.scheduleDestroyedToast(destroyedMembers, totalConsolation);
+    }
+    if (tick.ticks > 0) {
+      persistSave(save);
+    }
 
     if (isSupabaseEnabled()) {
       this.buildTopButtons();
@@ -93,6 +121,9 @@ export class MenuScene extends Phaser.Scene {
     order.forEach((key, i) => {
       this.makeJobCard(cx, 360 + i * 200, key, save);
     });
+
+    // Phase A~D: 팀 패널 (CEO 승격 후 표시)
+    this.buildTeamPanel(cx, 880, save);
 
     // Phase 4: 프로젝트 출시 버튼 (조건 충족 시 활성)
     this.buildProjectLaunchButton(cx, GAME_HEIGHT - 130, save);
@@ -395,6 +426,468 @@ export class MenuScene extends Phaser.Scene {
     }
   }
 
+  // -------- 팀 누적 결과 토스트 --------
+
+  private scheduleDestroyedToast(members: TeamMember[], consolation: number): void {
+    // 타이밍: 메뉴 그려진 후 잠시 뒤 표시
+    this.time.delayedCall(400, () => {
+      const cx = GAME_WIDTH / 2;
+      const cy = GAME_HEIGHT / 2;
+      const objs: Phaser.GameObjects.GameObject[] = [];
+      const overlay = this.add
+        .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.7)
+        .setOrigin(0)
+        .setDepth(310)
+        .setInteractive();
+      objs.push(overlay);
+      const panel = this.add
+        .rectangle(cx, cy, 540, 360, 0x1a1a22)
+        .setStrokeStyle(3, 0xe24a4a, 0.8)
+        .setDepth(311);
+      objs.push(panel);
+      const lines = members.map((m) => `· ${JOB_EMOJI[m.jobKey]} ${m.name} (Lv ${m.level})`).join('\n');
+      objs.push(
+        this.add
+          .text(cx, cy - 130, '💔 동료 퇴사', {
+            fontFamily: 'Pretendard, sans-serif',
+            fontSize: '28px',
+            color: '#e24a4a',
+            fontStyle: 'bold',
+          })
+          .setOrigin(0.5)
+          .setDepth(312),
+        this.add
+          .text(cx, cy - 60, `자리비움 동안 ${members.length}명이 폭사로 퇴사했습니다.\n\n${lines}`, {
+            fontFamily: 'Pretendard, sans-serif',
+            fontSize: '15px',
+            color: '#cfd1d4',
+            align: 'center',
+            wordWrap: { width: 480 },
+          })
+          .setOrigin(0.5)
+          .setDepth(312),
+        this.add
+          .text(cx, cy + 80, `💰 위로금 -₩${formatCompactWon(consolation)}`, {
+            fontFamily: 'Pretendard, sans-serif',
+            fontSize: '17px',
+            color: '#e2904a',
+          })
+          .setOrigin(0.5)
+          .setDepth(312),
+      );
+      const closeBg = this.add
+        .rectangle(cx, cy + 130, 200, 50, 0x3a3a44)
+        .setStrokeStyle(2, 0xffffff, 0.3)
+        .setDepth(312);
+      const closeText = this.add
+        .text(cx, cy + 130, '확인', {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '18px',
+          color: '#ffffff',
+        })
+        .setOrigin(0.5)
+        .setDepth(313);
+      objs.push(closeBg, closeText);
+      const close = () => objs.forEach((o) => o.destroy());
+      closeBg.setInteractive({ useHandCursor: true });
+      closeBg.on('pointerdown', close);
+      overlay.on('pointerdown', close);
+    });
+  }
+
+  // -------- 팀 패널 (Phase A~D) --------
+
+  private buildTeamPanel(cx: number, y: number, save: SaveData): void {
+    // 잠금 상태 (CEO 승격 전)
+    if (save.projectsCompleted <= 0) {
+      this.add
+        .rectangle(cx, y + 30, 600, 70, 0x2a2a32)
+        .setStrokeStyle(2, 0x5a5a5a, 0.5);
+      this.add
+        .text(cx, y + 14, '🔒 우리 팀', {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '20px',
+          color: '#9aa0a6',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5);
+      this.add
+        .text(cx, y + 44, '첫 프로젝트 출시 성공 시 동료가 합류합니다', {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '13px',
+          color: '#5f6368',
+        })
+        .setOrigin(0.5);
+      return;
+    }
+
+    // 활성 상태
+    const cap = teamCapForProjects(save.projectsCompleted);
+    const aliveTeam = save.team.filter((m) => m.alive);
+    const revenue = teamRevenuePerTick(save.team);
+    const diversity = diversityMultiplier(save.team);
+    const tickSec = TEAM_REVENUE_TICK_MS / 1000;
+
+    // 헤더
+    this.add
+      .text(cx, y, `👥 우리 팀  ${aliveTeam.length}/${cap}명`, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '20px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5);
+    const subParts = [`💰 ₩${formatCompactWon(revenue)}/${tickSec}s`];
+    if (diversity > 1) subParts.push(`직군 ×${diversity.toFixed(1)}`);
+    this.add
+      .text(cx, y + 24, subParts.join('  ·  '), {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '13px',
+        color: '#9af0a8',
+      })
+      .setOrigin(0.5);
+
+    // 그리드 (4열 × 3행 = 최대 12 슬롯)
+    const cols = 4;
+    const rows = 3;
+    const cellW = 150;
+    const cellH = 48;
+    const gap = 8;
+    const totalW = cols * cellW + (cols - 1) * gap;
+    const startX = cx - totalW / 2 + cellW / 2;
+    const gridStartY = y + 60;
+    for (let i = 0; i < cols * rows; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const sx = startX + col * (cellW + gap);
+      const sy = gridStartY + row * (cellH + gap);
+      this.buildTeamCell(sx, sy, cellW, cellH, i, save);
+    }
+  }
+
+  private buildTeamCell(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    slotIdx: number,
+    save: SaveData,
+  ): void {
+    const cap = teamCapForProjects(save.projectsCompleted);
+    const aliveTeam = save.team.filter((m) => m.alive);
+    const isLockedSlot = slotIdx >= cap;
+    const member = aliveTeam[slotIdx]; // 살아있는 N번째
+
+    if (isLockedSlot) {
+      // 잠긴 슬롯
+      this.add
+        .rectangle(x, y, w, h, 0x1a1a22)
+        .setStrokeStyle(1, 0x3a3a44, 0.6);
+      this.add
+        .text(x, y, '🔒', {
+          fontFamily: 'sans-serif',
+          fontSize: '16px',
+        })
+        .setOrigin(0.5);
+      return;
+    }
+
+    if (!member) {
+      // 빈 채용 가능 슬롯
+      const cost = hireCost(aliveTeam.length);
+      const canAfford = save.gold >= cost;
+      const bg = this.add
+        .rectangle(x, y, w, h, canAfford ? 0x4a90e2 : 0x2a2a32)
+        .setStrokeStyle(2, canAfford ? 0xffffff : 0x5a5a5a, canAfford ? 0.4 : 0.3);
+      this.add
+        .text(x, y - 8, '+ 채용', {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '15px',
+          color: canAfford ? '#ffffff' : '#9aa0a6',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5);
+      this.add
+        .text(x, y + 12, `₩${formatCompactWon(cost)}`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '12px',
+          color: canAfford ? '#dde2ee' : '#5f6368',
+        })
+        .setOrigin(0.5);
+      bg.setInteractive({ useHandCursor: true });
+      bg.on('pointerdown', () => this.openHireModal(save));
+      bg.on('pointerover', () => bg.setStrokeStyle(2, 0xffffff, 0.8));
+      bg.on('pointerout', () => bg.setStrokeStyle(2, canAfford ? 0xffffff : 0x5a5a5a, canAfford ? 0.4 : 0.3));
+      return;
+    }
+
+    // 점유된 슬롯 — 멤버 표시
+    const jobColor = JOB_COLOR[member.jobKey];
+    const jobEmoji = JOB_EMOJI[member.jobKey];
+    const bg = this.add
+      .rectangle(x, y, w, h, 0x2a2a32)
+      .setStrokeStyle(2, jobColor, 0.7);
+    this.add
+      .text(x - w / 2 + 14, y, jobEmoji, {
+        fontFamily: 'sans-serif',
+        fontSize: '20px',
+      })
+      .setOrigin(0, 0.5);
+    this.add
+      .text(x - w / 2 + 40, y - 9, member.name, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '13px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0, 0.5);
+    this.add
+      .text(x - w / 2 + 40, y + 9, `Lv ${member.level}`, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '12px',
+        color: '#ffd23f',
+      })
+      .setOrigin(0, 0.5);
+    bg.setInteractive({ useHandCursor: true });
+    bg.on('pointerdown', () => this.openMemberDetail(save, member));
+    bg.on('pointerover', () => bg.setStrokeStyle(2, jobColor, 1));
+    bg.on('pointerout', () => bg.setStrokeStyle(2, jobColor, 0.7));
+  }
+
+  private openHireModal(save: SaveData): void {
+    const cap = teamCapForProjects(save.projectsCompleted);
+    const aliveTeam = save.team.filter((m) => m.alive);
+    if (aliveTeam.length >= cap) {
+      // 자리 없음 (모달 막기)
+      return;
+    }
+    const cost = hireCost(aliveTeam.length);
+    if (save.gold < cost) {
+      // 골드 부족 알림
+      const tx = GAME_WIDTH / 2;
+      const ty = GAME_HEIGHT / 2;
+      const t = this.add
+        .text(tx, ty, `골드 부족 — ₩${formatCompactWon(cost)} 필요`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '20px',
+          color: '#e24a4a',
+          backgroundColor: '#1a1a22',
+          padding: { x: 16, y: 12 },
+        })
+        .setOrigin(0.5)
+        .setDepth(310);
+      this.tweens.add({
+        targets: t,
+        alpha: 0,
+        duration: 1500,
+        delay: 800,
+        onComplete: () => t.destroy(),
+      });
+      return;
+    }
+
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const objs: Phaser.GameObjects.GameObject[] = [];
+    const overlay = this.add
+      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.78)
+      .setOrigin(0)
+      .setDepth(300)
+      .setInteractive();
+    objs.push(overlay);
+    const panel = this.add
+      .rectangle(cx, cy, 540, 480, 0x1a1a22)
+      .setStrokeStyle(3, 0x4a90e2, 0.7)
+      .setDepth(301);
+    objs.push(panel);
+
+    objs.push(
+      this.add
+        .text(cx, cy - 200, '👥 새 동료 채용', {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '28px',
+          color: '#ffffff',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(cx, cy - 160, `채용 비용  ₩${formatCompactWon(cost)}`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '18px',
+          color: '#ffd23f',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(cx, cy - 120, '직군을 선택하세요', {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '15px',
+          color: '#cfd1d4',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+    );
+
+    const close = () => objs.forEach((o) => o.destroy());
+
+    const jobs: { key: JobKey; label: string; emoji: string; y: number; color: number }[] = [
+      { key: 'planner', label: '기획자', emoji: '📋', y: cy - 65, color: 0x4a90e2 },
+      { key: 'designer', label: '디자이너', emoji: '🎨', y: cy - 5, color: 0xe24a90 },
+      { key: 'developer', label: '개발자', emoji: '👨‍💻', y: cy + 55, color: 0x4ae290 },
+    ];
+    jobs.forEach((j) => {
+      const btn = this.add
+        .rectangle(cx, j.y, 380, 50, j.color, 0.85)
+        .setStrokeStyle(2, 0xffffff, 0.4)
+        .setDepth(302);
+      const label = this.add
+        .text(cx, j.y, `${j.emoji}  ${j.label}`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '20px',
+          color: '#0e0e12',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5)
+        .setDepth(303);
+      objs.push(btn, label);
+      btn.setInteractive({ useHandCursor: true });
+      btn.on('pointerdown', () => {
+        save.gold -= cost;
+        save.team.push(createMember(j.key));
+        persistSave(save);
+        close();
+        this.scene.restart();
+      });
+    });
+
+    const cancelBg = this.add
+      .rectangle(cx, cy + 145, 200, 50, 0x3a3a44)
+      .setStrokeStyle(2, 0xffffff, 0.3)
+      .setDepth(302);
+    const cancelText = this.add
+      .text(cx, cy + 145, '취소', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '18px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setDepth(303);
+    objs.push(cancelBg, cancelText);
+    cancelBg.setInteractive({ useHandCursor: true });
+    cancelBg.on('pointerdown', close);
+  }
+
+  private openMemberDetail(save: SaveData, member: TeamMember): void {
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const objs: Phaser.GameObjects.GameObject[] = [];
+    const overlay = this.add
+      .rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.78)
+      .setOrigin(0)
+      .setDepth(300)
+      .setInteractive();
+    objs.push(overlay);
+    const panel = this.add
+      .rectangle(cx, cy, 520, 380, 0x1a1a22)
+      .setStrokeStyle(3, JOB_COLOR[member.jobKey], 0.7)
+      .setDepth(301);
+    objs.push(panel);
+
+    const aliveTeam = save.team.filter((m) => m.alive);
+    const sizeAtHire = Math.max(0, aliveTeam.indexOf(member));
+    const refund = fireRefund(sizeAtHire);
+    const elapsedDays = Math.floor((Date.now() - member.hiredAt) / 86_400_000);
+
+    objs.push(
+      this.add
+        .text(cx, cy - 145, `${JOB_EMOJI[member.jobKey]} ${member.name}`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '28px',
+          color: '#ffffff',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(cx, cy - 100, JOB_LABEL[member.jobKey], {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '18px',
+          color: '#9aa0a6',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(cx, cy - 50, `현재 단계  Lv ${member.level}`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '22px',
+          color: '#ffd23f',
+          fontStyle: 'bold',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(cx, cy - 16, `매출 기여  ₩${formatCompactWon(Math.ceil(Math.pow(member.level + 1, 1.4) * 5))}/30s`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '15px',
+          color: '#9af0a8',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+      this.add
+        .text(cx, cy + 10, `근속 ${elapsedDays}일`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '13px',
+          color: '#5f6368',
+        })
+        .setOrigin(0.5)
+        .setDepth(302),
+    );
+
+    const close = () => objs.forEach((o) => o.destroy());
+
+    // 해고 버튼
+    const fireBg = this.add
+      .rectangle(cx - 110, cy + 110, 200, 50, 0xe24a4a)
+      .setStrokeStyle(2, 0xffffff, 0.3)
+      .setDepth(302);
+    const fireText = this.add
+      .text(cx - 110, cy + 110, `해고  +₩${formatCompactWon(refund)}`, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '15px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+      })
+      .setOrigin(0.5)
+      .setDepth(303);
+    objs.push(fireBg, fireText);
+    fireBg.setInteractive({ useHandCursor: true });
+    fireBg.on('pointerdown', () => {
+      save.gold += refund;
+      save.team = save.team.filter((m) => m.id !== member.id);
+      persistSave(save);
+      close();
+      this.scene.restart();
+    });
+
+    // 닫기 버튼
+    const closeBg = this.add
+      .rectangle(cx + 110, cy + 110, 200, 50, 0x3a3a44)
+      .setStrokeStyle(2, 0xffffff, 0.3)
+      .setDepth(302);
+    const closeText = this.add
+      .text(cx + 110, cy + 110, '닫기', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '18px',
+        color: '#ffffff',
+      })
+      .setOrigin(0.5)
+      .setDepth(303);
+    objs.push(closeBg, closeText);
+    closeBg.setInteractive({ useHandCursor: true });
+    closeBg.on('pointerdown', close);
+  }
+
   // -------- 프로젝트 출시 (Phase 4) --------
 
   private buildProjectLaunchButton(x: number, y: number, save: SaveData): void {
@@ -586,7 +1079,20 @@ export class MenuScene extends Phaser.Scene {
         save.projectsCompleted += 1;
         save.prestige += PROJECT_SUCCESS_PRESTIGE;
         save.gold += reward;
-        result.setText(`${def.successMessage}\n+⭐ ${PROJECT_SUCCESS_PRESTIGE} · 💰 +${reward.toLocaleString()}`);
+        // Phase D: 출시 성공 시 자동 채용 (cap 미만일 때 1명 영입)
+        const cap = teamCapForProjects(save.projectsCompleted);
+        const aliveTeam = save.team.filter((m) => m.alive);
+        let hireMessage = '';
+        if (aliveTeam.length < cap && save.team.length < MAX_TEAM_SIZE) {
+          const aceJob = pickAceJob(save.bestByJob);
+          const newJob = pickAutoHireJob(save.team, aceJob);
+          const newMember = createMember(newJob);
+          save.team.push(newMember);
+          hireMessage = `\n🎉 ${newMember.name} (${JOB_LABEL[newJob]}) 합류!`;
+        }
+        result.setText(
+          `${def.successMessage}\n+⭐ ${PROJECT_SUCCESS_PRESTIGE} · 💰 +${reward.toLocaleString()}${hireMessage}`,
+        );
         result.setColor('#9af0a8');
       } else {
         save.gold += consol;
@@ -1102,6 +1608,45 @@ function positionInput(el: HTMLInputElement, _xOffset: number, yOffset: number):
   // 화면 중앙 기준 yOffset px만큼 이동
   el.style.top = '50%';
   el.style.transform = `translate(-50%, calc(-50% + ${yOffset}px))`;
+}
+
+// -------- 팀 헬퍼 --------
+
+const JOB_EMOJI: Record<JobKey, string> = {
+  planner: '📋',
+  designer: '🎨',
+  developer: '👨‍💻',
+};
+const JOB_COLOR: Record<JobKey, number> = {
+  planner: 0x4a90e2,
+  designer: 0xe24a90,
+  developer: 0x4ae290,
+};
+const JOB_LABEL: Record<JobKey, string> = {
+  planner: '기획자',
+  designer: '디자이너',
+  developer: '개발자',
+};
+
+/** 본인 에이스 직군 — bestByJob이 가장 높은 직군. 동률이면 dev > planner > designer 우선. */
+function pickAceJob(bestByJob: Record<JobKey, number>): JobKey {
+  const entries: [JobKey, number][] = [
+    ['developer', bestByJob.developer],
+    ['planner', bestByJob.planner],
+    ['designer', bestByJob.designer],
+  ];
+  entries.sort((a, b) => b[1] - a[1]);
+  return entries[0][0];
+}
+
+/** 큰 KRW 값 압축 표기 (1234567 → 123만 / 1234567890 → 12.3억). */
+function formatCompactWon(amount: number): string {
+  const ABS = Math.abs(amount);
+  if (ABS < 10_000) return amount.toLocaleString();
+  if (ABS < 100_000_000) return `${(amount / 10_000).toFixed(ABS < 1_000_000 ? 1 : 0)}만`;
+  if (ABS < 1_000_000_000_000) return `${(amount / 100_000_000).toFixed(ABS < 10_000_000_000 ? 1 : 0)}억`;
+  if (ABS < 1e16) return `${(amount / 1_000_000_000_000).toFixed(1)}조`;
+  return `${(amount / 1e16).toFixed(2)}경`;
 }
 
 // -------- 시너지 / 정렬값 헬퍼 --------

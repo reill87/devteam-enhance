@@ -9,6 +9,7 @@ import {
   emptyPlannerSlots,
   type PlannerSlot,
 } from '../data/planner';
+import { MAX_TEAM_SIZE, type TeamMember } from '../data/team';
 
 const STORAGE_KEY = 'devteam-enhance/save/v3';
 
@@ -52,6 +53,10 @@ export type SaveData = {
   plannerSlots: PlannerSlot[];
   /** 누적 프로젝트 출시 성공 횟수 (Phase 4 엔드게임). */
   projectsCompleted: number;
+  /** 팀 멤버 (CEO 승격 후 활성화). 최대 MAX_TEAM_SIZE. */
+  team: TeamMember[];
+  /** 마지막 자동 매출/강화 틱 시각 (epoch ms). */
+  lastTeamTickAt: number;
 };
 
 function emptyInventory(): Record<ItemKey, number> {
@@ -136,7 +141,29 @@ export function defaultSave(): SaveData {
     bestByJob: emptyBestByJob(),
     plannerSlots: emptyPlannerSlots(),
     projectsCompleted: 0,
+    team: [],
+    lastTeamTickAt: 0,
   };
+}
+
+function parseTeam(raw: unknown): TeamMember[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TeamMember[] = [];
+  for (let i = 0; i < raw.length && out.length < MAX_TEAM_SIZE; i++) {
+    const e = raw[i];
+    if (!e || typeof e !== 'object') continue;
+    const m = e as Record<string, unknown>;
+    const id = typeof m.id === 'string' ? m.id : null;
+    const name = typeof m.name === 'string' ? m.name : null;
+    const jobKey = m.jobKey === 'planner' || m.jobKey === 'designer' || m.jobKey === 'developer' ? m.jobKey : null;
+    const level = typeof m.level === 'number' && m.level >= 0 ? Math.floor(m.level) : 0;
+    const alive = typeof m.alive === 'boolean' ? m.alive : true;
+    const hiredAt = typeof m.hiredAt === 'number' && m.hiredAt > 0 ? m.hiredAt : Date.now();
+    if (id && name && jobKey) {
+      out.push({ id, name, jobKey, level, alive, hiredAt });
+    }
+  }
+  return out;
 }
 
 function parsePlannerSlots(raw: unknown): PlannerSlot[] {
@@ -202,6 +229,9 @@ export function loadSave(): SaveData {
       plannerSlots: parsePlannerSlots(parsed.plannerSlots),
       projectsCompleted: typeof parsed.projectsCompleted === 'number' && parsed.projectsCompleted >= 0
         ? Math.floor(parsed.projectsCompleted) : 0,
+      team: parseTeam(parsed.team),
+      lastTeamTickAt: typeof parsed.lastTeamTickAt === 'number' && parsed.lastTeamTickAt >= 0
+        ? parsed.lastTeamTickAt : 0,
     };
   } catch {
     return defaultSave();
