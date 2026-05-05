@@ -7,6 +7,21 @@ import type { JobKey } from './characters';
 
 export const MAX_TEAM_SIZE = 12;
 
+/** 멤버 등급 — 가챠로 영입한 시니어/전설은 매출 멀티가 더 큼. */
+export type MemberTier = 'normal' | 'senior' | 'legendary';
+
+export const MEMBER_TIER_MUL: Record<MemberTier, number> = {
+  normal: 1.0,
+  senior: 2.0,
+  legendary: 5.0,
+};
+
+export const MEMBER_TIER_LABEL: Record<MemberTier, string> = {
+  normal: '',
+  senior: '🔵 시니어',
+  legendary: '🟡 전설',
+};
+
 export type TeamMember = {
   id: string;            // uuid (단순 랜덤 string)
   name: string;          // 자동 생성
@@ -14,6 +29,7 @@ export type TeamMember = {
   level: number;         // 자체 강화 단계
   alive: boolean;
   hiredAt: number;       // epoch ms
+  tier?: MemberTier;     // 영입 등급 (default normal)
 };
 
 /**
@@ -66,13 +82,14 @@ export function diversityMultiplier(team: TeamMember[]): number {
 }
 
 /**
- * 팀원 한 명의 기본 매출 기여 (틱당) — `(level+1)^1.5 × 50`.
+ * 팀원 한 명의 기본 매출 기여 (틱당) — `(level+1)^1.5 × 50 × tierMul`.
  * 회사 운영 부스트(prestige/projects)는 별도 곱셈 처리.
  * 죽은 멤버는 0 기여.
  */
 export function memberContribution(member: TeamMember): number {
   if (!member.alive) return 0;
-  return Math.ceil(Math.pow(member.level + 1, 1.5) * 50);
+  const tierMul = MEMBER_TIER_MUL[member.tier ?? 'normal'];
+  return Math.ceil(Math.pow(member.level + 1, 1.5) * 50 * tierMul);
 }
 
 /**
@@ -155,7 +172,7 @@ export function pickAutoHireJob(team: TeamMember[], aceJob: JobKey): JobKey {
 /**
  * 신규 멤버 생성.
  */
-export function createMember(jobKey: JobKey): TeamMember {
+export function createMember(jobKey: JobKey, tier: MemberTier = 'normal'): TeamMember {
   return {
     id: `m_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
     name: randomMemberName(jobKey),
@@ -163,5 +180,21 @@ export function createMember(jobKey: JobKey): TeamMember {
     level: 0,
     alive: true,
     hiredAt: Date.now(),
+    tier,
   };
+}
+
+// ============ L4 — 헤드헌터 가챠 ============
+
+/** 가챠 1회 비용 (KRW). */
+export const GACHA_COST = 10_000_000_000_000; // 10조
+
+/**
+ * 가챠 결과 추첨 — 90% normal / 9% senior / 1% legendary
+ */
+export function rollGacha(): MemberTier {
+  const r = Math.random();
+  if (r < 0.01) return 'legendary';
+  if (r < 0.10) return 'senior';
+  return 'normal';
 }

@@ -57,6 +57,42 @@ export type SaveData = {
   team: TeamMember[];
   /** 마지막 자동 매출/강화 틱 시각 (epoch ms). */
   lastTeamTickAt: number;
+
+  // ============ L0 — 분기 KPI (전 단계) ============
+  /** 연속 강화 성공 카운트 (분기 KPI). 실패하면 0. 10 도달 시 보상 + 0으로 초기화. */
+  quarterlyKpiStreak: number;
+  /** 분기 KPI 누적 달성 횟수. */
+  quarterlyKpiTotal: number;
+
+  // ============ L2 — 사옥 등급 ============
+  /** 0=스타트업, 1=중견, 2=대기업, 3=다이아, 4=옴니버스 */
+  officeTier: number;
+
+  // ============ L3 — 모드 ============
+  /** 야근 모드 (lv 40+ 해금). 비용/보상/콤보 ↑, 실패 시 단계 -3. */
+  yagunMode: boolean;
+  /** 워라밸 모드 (lv 100+ 해금). 오프라인 매출 ×1.5. */
+  worklifeMode: boolean;
+
+  // ============ L4 — 자동 강화 / 가챠 ============
+  /** 본인 자동 강화 (lv 250+ 해금). */
+  autoEnhanceEnabled: boolean;
+  /** 헤드헌터 가챠 사용 횟수 (참고용). */
+  gachaCount: number;
+
+  // ============ L5 — 분기 미션 ============
+  /** 현재 활성 미션 ID (null이면 새로 뽑아야 함). */
+  activeMissionId: string | null;
+  /** 미션 시작 시각. */
+  activeMissionStartedAt: number;
+  /** 미션 진행도 누적값. */
+  activeMissionProgress: number;
+  /** 미션 완료 누적 횟수. */
+  completedMissionsCount: number;
+
+  // ============ L6 — 양자 코어 ============
+  /** 양자 코어 활성 (lv 800+). 강화 시 50% 확률 ×2. */
+  quantumCoreEnabled: boolean;
 };
 
 function emptyInventory(): Record<ItemKey, number> {
@@ -143,6 +179,19 @@ export function defaultSave(): SaveData {
     projectsCompleted: 0,
     team: [],
     lastTeamTickAt: 0,
+    // L0~L6 기본값
+    quarterlyKpiStreak: 0,
+    quarterlyKpiTotal: 0,
+    officeTier: 0,
+    yagunMode: false,
+    worklifeMode: false,
+    autoEnhanceEnabled: false,
+    gachaCount: 0,
+    activeMissionId: null,
+    activeMissionStartedAt: 0,
+    activeMissionProgress: 0,
+    completedMissionsCount: 0,
+    quantumCoreEnabled: false,
   };
 }
 
@@ -232,6 +281,25 @@ export function loadSave(): SaveData {
       team: parseTeam(parsed.team),
       lastTeamTickAt: typeof parsed.lastTeamTickAt === 'number' && parsed.lastTeamTickAt >= 0
         ? parsed.lastTeamTickAt : 0,
+      quarterlyKpiStreak: typeof parsed.quarterlyKpiStreak === 'number' && parsed.quarterlyKpiStreak >= 0
+        ? parsed.quarterlyKpiStreak : 0,
+      quarterlyKpiTotal: typeof parsed.quarterlyKpiTotal === 'number' && parsed.quarterlyKpiTotal >= 0
+        ? parsed.quarterlyKpiTotal : 0,
+      officeTier: typeof parsed.officeTier === 'number' && parsed.officeTier >= 0
+        ? Math.min(4, Math.floor(parsed.officeTier)) : 0,
+      yagunMode: parsed.yagunMode === true,
+      worklifeMode: parsed.worklifeMode === true,
+      autoEnhanceEnabled: parsed.autoEnhanceEnabled === true,
+      gachaCount: typeof parsed.gachaCount === 'number' && parsed.gachaCount >= 0
+        ? parsed.gachaCount : 0,
+      activeMissionId: typeof parsed.activeMissionId === 'string' ? parsed.activeMissionId : null,
+      activeMissionStartedAt: typeof parsed.activeMissionStartedAt === 'number' && parsed.activeMissionStartedAt >= 0
+        ? parsed.activeMissionStartedAt : 0,
+      activeMissionProgress: typeof parsed.activeMissionProgress === 'number' && parsed.activeMissionProgress >= 0
+        ? parsed.activeMissionProgress : 0,
+      completedMissionsCount: typeof parsed.completedMissionsCount === 'number' && parsed.completedMissionsCount >= 0
+        ? parsed.completedMissionsCount : 0,
+      quantumCoreEnabled: parsed.quantumCoreEnabled === true,
     };
   } catch {
     return defaultSave();

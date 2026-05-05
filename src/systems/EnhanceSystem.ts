@@ -2,8 +2,10 @@ import { rateAt, failPenaltyFor, costForJob } from '../data/rates';
 import { MAX_LEVEL, type JobKey } from '../data/characters';
 import type { ItemKey } from '../data/items';
 
+export type EnhanceModifier = 'critical' | 'mega' | 'emergency' | 'quantum';
+
 export type EnhanceResult =
-  | { kind: 'success'; from: number; to: number; protectedBy?: ItemKey }
+  | { kind: 'success'; from: number; to: number; protectedBy?: ItemKey; modifier?: EnhanceModifier }
   | { kind: 'fail-stay'; level: number; protectedBy?: ItemKey }
   | { kind: 'fail-down'; from: number; to: number }
   | { kind: 'destroy'; from: number }
@@ -24,16 +26,17 @@ export function tryEnhance(
   mainBonus: number = 0,
   comboBonus: number = 0,
   jobKey?: JobKey,
+  quantumEnabled: boolean = false,
 ): EnhanceResult {
   // 리팩토링: 즉시 +1, 다음 강화는 강제 실패. 다른 아이템 무시.
   if (buffs.refactor) {
     if (currentLevel >= MAX_LEVEL) return { kind: 'maxed', level: currentLevel };
     return { kind: 'success', from: currentLevel, to: currentLevel + 1 };
   }
-  const first = rollOnce(currentLevel, buffs, rng, mainBonus, comboBonus, jobKey);
+  const first = rollOnce(currentLevel, buffs, rng, mainBonus, comboBonus, jobKey, quantumEnabled);
   if (!buffs.luck) return first;
   if (isFail(first)) {
-    return rollOnce(currentLevel, { ...buffs, luck: false }, rng, mainBonus, comboBonus, jobKey);
+    return rollOnce(currentLevel, { ...buffs, luck: false }, rng, mainBonus, comboBonus, jobKey, quantumEnabled);
   }
   return first;
 }
@@ -49,6 +52,7 @@ function rollOnce(
   mainBonus: number,
   comboBonus: number,
   jobKey?: JobKey,
+  quantumEnabled: boolean = false,
 ): EnhanceResult {
   if (currentLevel >= MAX_LEVEL) {
     return { kind: 'maxed', level: currentLevel };
@@ -73,11 +77,30 @@ function rollOnce(
       : buffs.blessing
         ? 'blessing'
         : undefined;
+    // L0: 크리티컬 / 메가 크리티컬 / 긴급 호출 추첨 (success only).
+    const critRoll = rng();
+    let modifier: EnhanceModifier | undefined;
+    let bonusJump = 0;
+    if (critRoll < 0.01) {
+      modifier = 'mega';
+      bonusJump = 2; // +1 → +3
+    } else if (critRoll < 0.06) {
+      modifier = 'critical';
+      bonusJump = 1; // +1 → +2
+    } else if (critRoll < 0.11) {
+      modifier = 'emergency';
+    }
+    // L6: 양자 코어 — 50% 확률로 결과 단계 ×2 (modifier 미설정 케이스에 한해)
+    if (quantumEnabled && rng() < 0.5) {
+      bonusJump += 1;
+      if (!modifier) modifier = 'quantum';
+    }
     return {
       kind: 'success',
       from: currentLevel,
-      to: currentLevel + 1,
+      to: Math.min(MAX_LEVEL, currentLevel + 1 + bonusJump),
       ...(protectedBy ? { protectedBy } : {}),
+      ...(modifier ? { modifier } : {}),
     };
   }
 

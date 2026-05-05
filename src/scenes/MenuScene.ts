@@ -34,11 +34,15 @@ import {
   pickAutoHireJob,
   memberContribution,
   companyMultiplier,
+  rollGacha,
+  GACHA_COST,
   TEAM_REVENUE_TICK_MS,
   MAX_TEAM_SIZE,
   type TeamMember,
 } from '../data/team';
 import { runTeamTick } from '../systems/TeamSystem';
+import { OFFICE_TIERS, nextOfficeTier, officeTierAt } from '../data/office';
+import { MISSIONS, MISSION_DURATION_MS, pickRandomMission, isMissionExpired, type MissionId } from '../data/missions';
 
 export class MenuScene extends Phaser.Scene {
   private authLabel?: Phaser.GameObjects.Text;
@@ -101,8 +105,9 @@ export class MenuScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     if (save.prestige > 0) {
+      const office = officeTierAt(save.officeTier);
       this.add
-        .text(cx, 240, `⭐ 명성치 ${save.prestige}`, {
+        .text(cx, 240, `⭐ 명성치 ${save.prestige}  ·  ${office.emoji} ${office.name}`, {
           fontFamily: 'Pretendard, sans-serif',
           fontSize: '20px',
           color: '#ffd23f',
@@ -110,6 +115,8 @@ export class MenuScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
     }
+    // L2/L4/L5: 메뉴 상단 우측 작은 액션 버튼 (사옥/가챠/미션)
+    this.buildMetaButtons(cx, 270, save);
 
     this.add
       .text(cx, 290, '직군을 고르세요 (탭해서 시작)', {
@@ -426,6 +433,354 @@ export class MenuScene extends Phaser.Scene {
         this.scene.restart();
       }
     }
+  }
+
+  // -------- L2/L4/L5: 메타 버튼 (사옥/가챠/미션) --------
+
+  private buildMetaButtons(cx: number, y: number, save: SaveData): void {
+    const aceBest = Math.max(save.bestByJob.developer, save.bestByJob.planner, save.bestByJob.designer);
+    const buttons: { label: string; color: number; onClick: () => void; visible: boolean }[] = [];
+
+    // 사옥 (lv 50+ 노출)
+    if (aceBest >= 50 || save.officeTier > 0) {
+      const next = nextOfficeTier(save.officeTier);
+      const lbl = next ? `🏢 사옥` : `🌌 최종 사옥`;
+      buttons.push({
+        label: lbl,
+        color: 0x4a90e2,
+        visible: true,
+        onClick: () => this.openOfficeModal(save),
+      });
+    }
+    // 가챠 (lv 300+)
+    if (aceBest >= 300) {
+      buttons.push({
+        label: '🎰 헤드헌터',
+        color: 0xa370ff,
+        visible: true,
+        onClick: () => this.openGachaModal(save),
+      });
+    }
+    // 미션 (lv 500+)
+    if (aceBest >= 500) {
+      buttons.push({
+        label: '📋 분기 미션',
+        color: 0xffd23f,
+        visible: true,
+        onClick: () => this.openMissionModal(save),
+      });
+    }
+    // 양자 코어 토글 (lv 800+)
+    if (aceBest >= 800) {
+      buttons.push({
+        label: `⚛️ 양자 ${save.quantumCoreEnabled ? 'ON' : 'OFF'}`,
+        color: save.quantumCoreEnabled ? 0xa370ff : 0x3a3a44,
+        visible: true,
+        onClick: () => {
+          save.quantumCoreEnabled = !save.quantumCoreEnabled;
+          persistSave(save);
+          this.scene.restart();
+        },
+      });
+    }
+    if (buttons.length === 0) return;
+
+    const btnW = 130;
+    const btnH = 36;
+    const gap = 10;
+    const totalW = buttons.length * btnW + (buttons.length - 1) * gap;
+    let bx = cx - totalW / 2 + btnW / 2;
+    buttons.forEach((b) => {
+      const c = this.add.container(bx, y);
+      const bg = this.add.rectangle(0, 0, btnW, btnH, b.color, 0.85).setStrokeStyle(1, 0xffffff, 0.4);
+      const txt = this.add.text(0, 0, b.label, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '14px',
+        color: '#0e0e12',
+        fontStyle: 'bold',
+      }).setOrigin(0.5);
+      c.add([bg, txt]);
+      c.setSize(btnW, btnH);
+      c.setInteractive({ useHandCursor: true });
+      c.on('pointerover', () => bg.setStrokeStyle(1, 0xffffff, 1));
+      c.on('pointerout', () => bg.setStrokeStyle(1, 0xffffff, 0.4));
+      c.on('pointerdown', b.onClick);
+      bx += btnW + gap;
+    });
+  }
+
+  // -------- 사옥 모달 --------
+
+  private openOfficeModal(save: SaveData): void {
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const objs: Phaser.GameObjects.GameObject[] = [];
+    const overlay = this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.78).setOrigin(0).setDepth(300).setInteractive();
+    objs.push(overlay);
+    const panel = this.add.rectangle(cx, cy, 600, 800, 0x1a1a22).setStrokeStyle(3, 0x4a90e2, 0.7).setDepth(301);
+    objs.push(panel);
+    objs.push(this.add.text(cx, cy - 360, '🏢 사옥 등급', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '28px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(302));
+
+    OFFICE_TIERS.forEach((t, i) => {
+      const yy = cy - 300 + i * 130;
+      const owned = save.officeTier >= t.tier;
+      const aceBest = Math.max(save.bestByJob.developer, save.bestByJob.planner, save.bestByJob.designer);
+      const reqMet = aceBest >= t.requiredLevel;
+      const canBuy = !owned && reqMet && save.officeTier === t.tier - 1 && save.gold >= t.upgradeCost;
+      const statusColor = owned ? 0x4ae290 : (canBuy ? 0xffd23f : 0x3a3a44);
+      const card = this.add.rectangle(cx, yy, 540, 110, 0x2a2a32).setStrokeStyle(2, statusColor, 0.7).setDepth(302);
+      objs.push(card);
+      objs.push(this.add.text(cx - 240, yy - 30, `${t.emoji} ${t.name}`, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '20px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+      }).setOrigin(0, 0.5).setDepth(303));
+      objs.push(this.add.text(cx - 240, yy - 4, `매출 ×${t.multiplier.toFixed(1)} · 필요 단계 ${t.requiredLevel}`, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '14px',
+        color: '#cfd1d4',
+      }).setOrigin(0, 0.5).setDepth(303));
+      objs.push(this.add.text(cx - 240, yy + 18, t.upgradeCost > 0 ? `비용 ${formatCompactWon(t.upgradeCost)}원` : '시작 등급', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '13px',
+        color: '#9aa0a6',
+      }).setOrigin(0, 0.5).setDepth(303));
+
+      const stateLabel = owned ? '✅ 보유' : (canBuy ? '🔓 입주 가능' : (reqMet ? '🔒 잠김' : `🔒 lv ${t.requiredLevel}`));
+      const stateText = this.add.text(cx + 200, yy, stateLabel, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '15px',
+        color: owned ? '#4ae290' : (canBuy ? '#ffd23f' : '#9aa0a6'),
+        fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(303);
+      objs.push(stateText);
+
+      if (canBuy) {
+        card.setInteractive({ useHandCursor: true });
+        card.on('pointerdown', () => {
+          save.gold -= t.upgradeCost;
+          save.officeTier = t.tier;
+          persistSave(save);
+          objs.forEach((o) => o.destroy());
+          this.scene.restart();
+        });
+      }
+    });
+
+    const closeBg = this.add.rectangle(cx, cy + 360, 200, 50, 0x3a3a44).setStrokeStyle(2, 0xffffff, 0.3).setDepth(302);
+    const closeText = this.add.text(cx, cy + 360, '닫기', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '18px',
+      color: '#ffffff',
+    }).setOrigin(0.5).setDepth(303);
+    objs.push(closeBg, closeText);
+    closeBg.setInteractive({ useHandCursor: true });
+    closeBg.on('pointerdown', () => objs.forEach((o) => o.destroy()));
+  }
+
+  // -------- 가챠 모달 (L4) --------
+
+  private openGachaModal(save: SaveData): void {
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const objs: Phaser.GameObjects.GameObject[] = [];
+    const overlay = this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.78).setOrigin(0).setDepth(300).setInteractive();
+    objs.push(overlay);
+    const panel = this.add.rectangle(cx, cy, 540, 460, 0x1a1a22).setStrokeStyle(3, 0xa370ff, 0.7).setDepth(301);
+    objs.push(panel);
+    objs.push(this.add.text(cx, cy - 200, '🎰 헤드헌터', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '28px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(302));
+    objs.push(this.add.text(cx, cy - 160, `1회 ${formatCompactWon(GACHA_COST)}원`, {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '18px',
+      color: '#ffd23f',
+    }).setOrigin(0.5).setDepth(302));
+    objs.push(this.add.text(cx, cy - 110, '확률: 일반 90% · 시니어 9% · 전설 1%', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '13px',
+      color: '#9aa0a6',
+    }).setOrigin(0.5).setDepth(302));
+    objs.push(this.add.text(cx, cy - 80, '시니어 ×2 매출 / 전설 ×5 매출', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '13px',
+      color: '#9aa0a6',
+    }).setOrigin(0.5).setDepth(302));
+
+    const result = this.add.text(cx, cy, '', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '20px',
+      color: '#ffffff',
+      align: 'center',
+      wordWrap: { width: 480 },
+    }).setOrigin(0.5).setDepth(303);
+    objs.push(result);
+
+    const tryBg = this.add.rectangle(cx - 110, cy + 130, 200, 56, 0xa370ff).setStrokeStyle(2, 0xffffff, 0.4).setDepth(302);
+    const tryText = this.add.text(cx - 110, cy + 130, '🎰 시도', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '20px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(303);
+    objs.push(tryBg, tryText);
+    tryBg.setInteractive({ useHandCursor: true });
+    tryBg.on('pointerdown', () => {
+      if (save.gold < GACHA_COST) {
+        result.setText('💸 골드 부족');
+        result.setColor('#e24a4a');
+        return;
+      }
+      const aliveTeam = save.team.filter((m) => m.alive);
+      if (aliveTeam.length >= teamCapForProjects(save.projectsCompleted)) {
+        result.setText('팀 자리가 가득 찼습니다');
+        result.setColor('#e2904a');
+        return;
+      }
+      save.gold -= GACHA_COST;
+      save.gachaCount += 1;
+      // L5 미션 진행도
+      if (save.activeMissionId === 'gacha-3') save.activeMissionProgress += 1;
+      const tier = rollGacha();
+      const aceJob = pickAceJob(save.bestByJob);
+      const job = pickAutoHireJob(save.team, aceJob);
+      const m = createMember(job, tier);
+      save.team.push(m);
+      const tierLabel = tier === 'legendary' ? '🟡 전설' : tier === 'senior' ? '🔵 시니어' : '⚪ 일반';
+      result.setText(`${tierLabel}\n${m.name} (${JOB_LABEL[job]}) 합류!`);
+      result.setColor(tier === 'legendary' ? '#ffd23f' : tier === 'senior' ? '#a370ff' : '#cfd1d4');
+      persistSave(save);
+    });
+
+    const closeBg = this.add.rectangle(cx + 110, cy + 130, 200, 56, 0x3a3a44).setStrokeStyle(2, 0xffffff, 0.3).setDepth(302);
+    const closeText = this.add.text(cx + 110, cy + 130, '닫기', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '20px',
+      color: '#ffffff',
+    }).setOrigin(0.5).setDepth(303);
+    objs.push(closeBg, closeText);
+    closeBg.setInteractive({ useHandCursor: true });
+    closeBg.on('pointerdown', () => {
+      objs.forEach((o) => o.destroy());
+      this.scene.restart();
+    });
+  }
+
+  // -------- 분기 미션 모달 (L5) --------
+
+  private openMissionModal(save: SaveData): void {
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const objs: Phaser.GameObjects.GameObject[] = [];
+    const overlay = this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.78).setOrigin(0).setDepth(300).setInteractive();
+    objs.push(overlay);
+    const panel = this.add.rectangle(cx, cy, 580, 580, 0x1a1a22).setStrokeStyle(3, 0xffd23f, 0.7).setDepth(301);
+    objs.push(panel);
+    objs.push(this.add.text(cx, cy - 240, '📋 분기 미션', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '28px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(302));
+
+    // 만료 시 새로 뽑기
+    if (save.activeMissionId == null || isMissionExpired(save.activeMissionStartedAt)) {
+      const newMission = pickRandomMission();
+      save.activeMissionId = newMission.id;
+      save.activeMissionStartedAt = Date.now();
+      save.activeMissionProgress = 0;
+      persistSave(save);
+    }
+
+    const mission = MISSIONS[save.activeMissionId as MissionId];
+    const remaining = MISSION_DURATION_MS - (Date.now() - save.activeMissionStartedAt);
+    const remainHrs = Math.floor(remaining / 3600000);
+    const remainMins = Math.floor((remaining % 3600000) / 60000);
+
+    objs.push(this.add.text(cx, cy - 180, `${mission.emoji} ${mission.label}`, {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '24px',
+      color: '#ffd23f',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(302));
+    objs.push(this.add.text(cx, cy - 140, mission.desc, {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '16px',
+      color: '#cfd1d4',
+      align: 'center',
+      wordWrap: { width: 500 },
+    }).setOrigin(0.5).setDepth(302));
+
+    const progress = Math.min(save.activeMissionProgress, mission.target);
+    const ratio = progress / mission.target;
+    objs.push(this.add.rectangle(cx, cy - 70, 480, 24, 0x3a3a44).setStrokeStyle(1, 0xffffff, 0.3).setDepth(302));
+    objs.push(this.add.rectangle(cx - 240, cy - 70, 480 * ratio, 22, 0xffd23f).setOrigin(0, 0.5).setDepth(303));
+    objs.push(this.add.text(cx, cy - 70, `${progress}/${mission.target}`, {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '14px',
+      color: '#0e0e12',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(304));
+
+    objs.push(this.add.text(cx, cy - 20, `보상: ${mission.rewardLabel}`, {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '17px',
+      color: '#9af0a8',
+    }).setOrigin(0.5).setDepth(302));
+    objs.push(this.add.text(cx, cy + 10, `남은 시간: ${remainHrs}시간 ${remainMins}분`, {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '14px',
+      color: '#9aa0a6',
+    }).setOrigin(0.5).setDepth(302));
+    objs.push(this.add.text(cx, cy + 40, `누적 완료 ${save.completedMissionsCount}회`, {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '13px',
+      color: '#5f6368',
+    }).setOrigin(0.5).setDepth(302));
+
+    const canClaim = progress >= mission.target;
+    const claimBg = this.add.rectangle(cx - 110, cy + 150, 200, 56, canClaim ? 0x4ae290 : 0x3a3a44).setStrokeStyle(2, 0xffffff, canClaim ? 0.4 : 0.2).setDepth(302);
+    const claimText = this.add.text(cx - 110, cy + 150, canClaim ? '🏆 보상 수령' : '진행 중', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '18px',
+      color: canClaim ? '#0e0e12' : '#9aa0a6',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(303);
+    objs.push(claimBg, claimText);
+    if (canClaim) {
+      claimBg.setInteractive({ useHandCursor: true });
+      claimBg.on('pointerdown', () => {
+        if (mission.reward.gold) save.gold += mission.reward.gold;
+        if (mission.reward.prestige) save.prestige += mission.reward.prestige;
+        save.completedMissionsCount += 1;
+        // 새 미션 자동 픽
+        const newM = pickRandomMission();
+        save.activeMissionId = newM.id;
+        save.activeMissionStartedAt = Date.now();
+        save.activeMissionProgress = 0;
+        persistSave(save);
+        objs.forEach((o) => o.destroy());
+        this.scene.restart();
+      });
+    }
+    const closeBg = this.add.rectangle(cx + 110, cy + 150, 200, 56, 0x3a3a44).setStrokeStyle(2, 0xffffff, 0.3).setDepth(302);
+    const closeText = this.add.text(cx + 110, cy + 150, '닫기', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '18px',
+      color: '#ffffff',
+    }).setOrigin(0.5).setDepth(303);
+    objs.push(closeBg, closeText);
+    closeBg.setInteractive({ useHandCursor: true });
+    closeBg.on('pointerdown', () => objs.forEach((o) => o.destroy()));
   }
 
   // -------- 팀 누적 결과 토스트 --------
@@ -757,6 +1112,10 @@ export class MenuScene extends Phaser.Scene {
       btn.on('pointerdown', () => {
         save.gold -= cost;
         save.team.push(createMember(j.key));
+        // L5 미션 진행도: hire-2
+        if (save.activeMissionId === 'hire-2') {
+          save.activeMissionProgress += 1;
+        }
         persistSave(save);
         close();
         this.scene.restart();

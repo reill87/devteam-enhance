@@ -58,6 +58,7 @@ import {
 } from '../data/designer';
 import { failPenaltyFor, checkSynergyGate } from '../data/rates';
 import { milestonesReached, type MilestoneDef } from '../data/milestones';
+import { officeMultiplier } from '../data/office';
 import { COLORS, hex } from '../data/theme';
 import {
   makePanel,
@@ -361,11 +362,14 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     this.buildIncomeRow(cx, 880);
+    this.buildKpiBar(cx, 945);
     this.buildEnhanceButton(cx, 990);
     if (this.jobKey === 'planner') {
       this.enhanceBtn.setVisible(false);
       this.buildPlannerSlots(cx, 990);
     }
+    // L3/L4: 야근/자동 강화 토글 (조건 충족 시)
+    this.buildModeToggles(cx, 1075);
 
     // 하단 가로 두 버튼: 직군 변경 + 이직
     this.makeButton(
@@ -414,6 +418,7 @@ export class GameScene extends Phaser.Scene {
       callback: () => this.maybeFireEmergency(),
     });
     this.setupAutoWork();
+    this.setupAutoEnhance();
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.regenTimer?.remove(false);
@@ -424,6 +429,8 @@ export class GameScene extends Phaser.Scene {
       this.emergencyTimer = undefined;
       this.autoWorkTimer?.remove(false);
       this.autoWorkTimer = undefined;
+      this.autoEnhanceTimer?.remove(false);
+      this.autoEnhanceTimer = undefined;
       this.cloudPushTimer?.remove(false);
       this.cloudPushTimer = undefined;
       this.idleParticleTimer?.remove(false);
@@ -511,7 +518,7 @@ export class GameScene extends Phaser.Scene {
           if (!this.alive) return;
           if (this.level < def.unlockLevel) return;
           // 사이드 프로젝트 / 스카웃 메일도 sub 도구의 영향으로 가속됨 (자동 수익은 sub 카테고리)
-          const reward = Math.ceil(def.reward(this.level) * this.currentSubMul() * this.prestigeRegenMul() * this.teamRegenMul());
+          const reward = Math.ceil(def.reward(this.level) * this.currentSubMul() * this.prestigeRegenMul() * this.teamRegenMul() * this.officeMul());
           this.save.gold += reward;
           persistSave(this.save);
           this.refreshTopBar();
@@ -525,7 +532,7 @@ export class GameScene extends Phaser.Scene {
 
   private tickRegen(): void {
     const base = regenAmount(this.alive ? this.level : 0);
-    const amount = Math.ceil(base * this.currentSubMul() * this.prestigeRegenMul() * this.teamRegenMul());
+    const amount = Math.ceil(base * this.currentSubMul() * this.prestigeRegenMul() * this.teamRegenMul() * this.officeMul());
     this.save.gold += amount;
     persistSave(this.save);
     this.refreshTopBar();
@@ -590,7 +597,7 @@ export class GameScene extends Phaser.Scene {
     if (now < cd) return;
 
     // 클릭 보상 = 장신구 × 명성 × 팀 시너지
-    let reward = Math.ceil(def.reward(this.level) * this.currentAccMul() * this.prestigeClickMul() * this.teamClickMul());
+    let reward = Math.ceil(def.reward(this.level) * this.currentAccMul() * this.prestigeClickMul() * this.officeMul() * this.teamClickMul());
     let label = `${def.emoji}`;
     let color = '#ffd23f';
 
@@ -666,7 +673,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       const reward = Math.ceil(
-        def.reward(this.level) * this.currentAccMul() * this.prestigeClickMul() * this.teamClickMul(),
+        def.reward(this.level) * this.currentAccMul() * this.prestigeClickMul() * this.officeMul() * this.teamClickMul(),
       );
       slot.bg.setFillStyle(0x4a90e2);
       slot.label.setColor('#ffffff');
@@ -895,6 +902,103 @@ export class GameScene extends Phaser.Scene {
     this.enhanceBtnSub = sub;
   }
 
+  // ============ L0: 분기 KPI 진행 바 ============
+
+  private kpiBar?: Phaser.GameObjects.Rectangle;
+  private kpiBarText?: Phaser.GameObjects.Text;
+  private kpiBarMaxWidth = 360;
+
+  private buildKpiBar(cx: number, y: number): void {
+    const w = this.kpiBarMaxWidth;
+    const h = 14;
+    this.add.rectangle(cx, y, w, h, 0x1a1a22).setStrokeStyle(1, 0xffffff, 0.2);
+    this.kpiBar = this.add
+      .rectangle(cx - w / 2, y, 0, h - 2, 0xffd23f)
+      .setOrigin(0, 0.5);
+    this.kpiBarText = this.add
+      .text(cx, y - 14, '', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '12px',
+        color: '#ffd23f',
+      })
+      .setOrigin(0.5);
+    this.refreshKpiBar();
+  }
+
+  private refreshKpiBar(): void {
+    if (!this.kpiBar || !this.kpiBarText) return;
+    const streak = this.save.quarterlyKpiStreak;
+    const ratio = Math.max(0, Math.min(1, streak / 10));
+    this.kpiBar.width = this.kpiBarMaxWidth * ratio;
+    this.kpiBarText.setText(`📈 분기 KPI ${streak}/10  ·  누적 ${this.save.quarterlyKpiTotal}회`);
+  }
+
+  // ============ L3/L4: 모드 토글 ============
+
+  private autoEnhanceTimer?: Phaser.Time.TimerEvent;
+
+  private buildModeToggles(cx: number, y: number): void {
+    const items: { unlock: number; label: () => string; onClick: () => void; getActive: () => boolean }[] = [];
+    if (this.save.bestByJob[this.jobKey] >= 40 || this.level >= 40) {
+      items.push({
+        unlock: 40,
+        label: () => `🚀 야근 ${this.save.yagunMode ? 'ON' : 'OFF'}`,
+        onClick: () => {
+          this.save.yagunMode = !this.save.yagunMode;
+          persistSave(this.save);
+          this.refreshAll();
+          this.flashTickerText(this.save.yagunMode ? '🚀 야근 모드 — 비용×2/보상×3, 실패 시 -3단계' : '야근 모드 OFF');
+        },
+        getActive: () => this.save.yagunMode,
+      });
+    }
+    if (this.save.bestByJob[this.jobKey] >= 250 || this.level >= 250) {
+      items.push({
+        unlock: 250,
+        label: () => `🤖 자동 ${this.save.autoEnhanceEnabled ? 'ON' : 'OFF'}`,
+        onClick: () => {
+          this.save.autoEnhanceEnabled = !this.save.autoEnhanceEnabled;
+          persistSave(this.save);
+          this.setupAutoEnhance();
+          this.refreshAll();
+          this.flashTickerText(this.save.autoEnhanceEnabled ? '🤖 자동 강화 ON (5초 주기)' : '자동 강화 OFF');
+        },
+        getActive: () => this.save.autoEnhanceEnabled,
+      });
+    }
+    if (items.length === 0) return;
+    const btnW = 160;
+    const gap = 12;
+    const totalW = items.length * btnW + (items.length - 1) * gap;
+    let bx = cx - totalW / 2 + btnW / 2;
+    items.forEach((item) => {
+      this.makeButton(bx, y, item.label(), item.getActive() ? 0xffd23f : 0x3a3a44, () => {
+        item.onClick();
+      }, { width: btnW, height: 44, fontSize: 16, textColor: item.getActive() ? '#0e0e12' : '#ffffff' });
+      bx += btnW + gap;
+    });
+  }
+
+  private setupAutoEnhance(): void {
+    this.autoEnhanceTimer?.remove(false);
+    this.autoEnhanceTimer = undefined;
+    if (!this.save.autoEnhanceEnabled) return;
+    if (!this.alive) return;
+    this.autoEnhanceTimer = this.time.addEvent({
+      delay: 5000,
+      loop: true,
+      callback: () => {
+        if (this.isEnhancing) return;
+        if (!this.alive) return;
+        if (this.level >= MAX_LEVEL) return;
+        // 자동: 가격 체크만 통과하면 시도
+        const cost = this.save.yagunMode ? costFor(this.level, this.jobKey) * 2 : costFor(this.level, this.jobKey);
+        if (this.save.gold < cost) return;
+        this.handlePrimaryAction();
+      },
+    });
+  }
+
   // ============ 기획자 병렬 슬롯 (Phase 1B) ============
 
   private buildPlannerSlots(centerX: number, y: number): void {
@@ -1113,8 +1217,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // 4) 비용 체크
-    const cost = costFor(this.level, this.jobKey);
+    // 4) 비용 체크 (L3 야근 모드 시 ×2)
+    let cost = costFor(this.level, this.jobKey);
+    if (this.save.yagunMode) cost *= 2;
     if (this.save.gold < cost) {
       this.flashResultText('골드가 부족합니다.');
       return;
@@ -1223,6 +1328,7 @@ export class GameScene extends Phaser.Scene {
         mainBonus,
         comboBonus + timingBonus + moodboardBonus,
         this.jobKey,
+        this.save.quantumCoreEnabled && this.save.bestByJob[this.jobKey] >= 800,
       );
       // eslint-disable-next-line no-console
       console.log('[enhance]', this.jobKey, { result, cost, usedBuffs, mainBonus, comboBonus, timingBonus, moodboardBonus });
@@ -1459,7 +1565,15 @@ export class GameScene extends Phaser.Scene {
     else this.save.stats.totalFail += 1;
 
     const bucket = bucketOf(result);
-    const reward = rewardFor(bucket, cost);
+    let reward = rewardFor(bucket, cost);
+    // L0: 크리티컬/긴급 보상 멀티
+    if (result.kind === 'success' && result.modifier === 'mega') reward = Math.round(reward * 5);
+    else if (result.kind === 'success' && result.modifier === 'critical') reward = Math.round(reward * 3);
+    else if (result.kind === 'success' && result.modifier === 'emergency') reward = Math.round(reward * 0.3);
+    // L3: 야근 모드 — 성공 시 보상 ×3
+    if (result.kind === 'success' && this.save.yagunMode) reward = Math.round(reward * 3);
+    // L2: 사옥 등급 멀티 (모든 매출에 영구 적용)
+    reward = Math.round(reward * officeMultiplier(this.save.officeTier));
     this.save.gold += reward;
 
     // 보호로 막힌 케이스 안내 메시지 우선
@@ -1480,12 +1594,33 @@ export class GameScene extends Phaser.Scene {
         if (this.level > prevBest) {
           const newMilestones = milestonesReached(prevBest, this.level);
           newMilestones.forEach((m) => this.applyMilestone(m));
+          // L1: 매 10/25/50단계 미니 보상 (50은 위 milestonesReached와 별개)
+          this.applyDenseLevelRewards(prevBest, this.level);
         }
+        // L0: 분기 KPI 스트릭 +1 / 10 도달 시 보상
+        this.save.quarterlyKpiStreak += 1;
+        if (this.save.quarterlyKpiStreak >= 10) {
+          this.save.quarterlyKpiStreak = 0;
+          this.save.quarterlyKpiTotal += 1;
+          this.applyKpiReward();
+          // L5 미션 진행도
+          if (this.save.activeMissionId === 'kpi-3') {
+            this.save.activeMissionProgress += 1;
+          }
+        }
+        // L5 미션: enhance-50 / level-up-10 / critical-5
+        this.tickMissionOnSuccess(result);
         this.save.combo += 1;
         this.save.comboLastAt = Date.now();
         this.refreshDisplay();
         this.playSuccessFx();
-        if (result.protectedBy === 'masterhand') {
+        if (result.modifier === 'mega') {
+          label = '💥 메가 크리티컬';
+        } else if (result.modifier === 'critical') {
+          label = '🌟 크리티컬';
+        } else if (result.modifier === 'emergency') {
+          label = '📞 긴급 호출';
+        } else if (result.protectedBy === 'masterhand') {
           label = '💎 장인의 손길';
         } else if (result.protectedBy === 'super_blessing') {
           label = '🎯 슈퍼 성공';
@@ -1514,19 +1649,28 @@ export class GameScene extends Phaser.Scene {
           label = '실패';
           labelColor = 0xe2c84a;
           this.save.combo = 0;
+          this.save.quarterlyKpiStreak = 0;
         }
         break;
-      case 'fail-down':
-        this.level = result.to;
+      case 'fail-down': {
+        // L3: 야근 모드 시 추가로 -2 단계 (총 -3 또는 더)
+        let next = result.to;
+        if (this.save.yagunMode) {
+          next = Math.max(0, next - 2);
+        }
+        this.level = next;
         this.save.combo = 0;
+        this.save.quarterlyKpiStreak = 0;
         this.refreshDisplay();
         this.playFailDownFx();
-        label = '단계 하락';
+        label = this.save.yagunMode ? '🚀 야근 폭망' : '단계 하락';
         labelColor = 0xe2904a;
         break;
+      }
       case 'destroy': {
         this.alive = false;
         this.save.combo = 0;
+        this.save.quarterlyKpiStreak = 0;
         // 폭사 시 보유 골드 30% 손실 (보너스 +reward와 별개)
         const lost = Math.floor(this.save.gold * 0.3);
         this.save.gold -= lost;
@@ -1563,6 +1707,84 @@ export class GameScene extends Phaser.Scene {
     persistSave(this.save);
     this.refreshTopBar();
     this.spawnFloatingGold(reward, `${def.emoji} ${def.label}!`, '#ffd23f');
+  }
+
+  /**
+   * L1: 매 10/25/50단계 미니 보상 (best 갱신 시).
+   *  매 10: 골드 +현재 비용×2
+   *  매 25: 명성 +1
+   *  매 50: 명성 +3 + 작은 컷인 (대형 마일스톤은 별도)
+   */
+  private applyDenseLevelRewards(prevBest: number, newBest: number): void {
+    for (let lv = prevBest + 1; lv <= newBest; lv++) {
+      if (lv % 10 === 0) {
+        const bonus = costFor(lv, this.jobKey) * 2;
+        this.save.gold += bonus;
+        this.spawnFloatingGold(bonus, `🎯 ${lv}단계 보너스`, '#9af0a8');
+      }
+      if (lv % 25 === 0 && lv % 50 !== 0) {
+        this.save.prestige += 1;
+      }
+      if (lv % 50 === 0) {
+        // 큰 마일스톤은 별도 (lv 50/100/200/500/999만)
+        if (![50, 100, 200, 500, 999].includes(lv)) {
+          this.save.prestige += 3;
+          this.flashTickerText(`🌟 ${lv}단계 달성 — 명성 +3`);
+        }
+      }
+    }
+  }
+
+  /** L0: 분기 KPI 10연속 달성 시 보상 + 컷인. */
+  private applyKpiReward(): void {
+    const goldBonus = costFor(this.level, this.jobKey) * 3;
+    this.save.gold += goldBonus;
+    this.save.prestige += 1;
+    this.flashTickerText(`🏆 분기 KPI 달성! +₩${this.fmtGold(goldBonus)} · 명성 +1`);
+  }
+
+  /** L5: 강화 성공 이벤트 → 진행 중인 미션의 진행도 갱신. */
+  private tickMissionOnSuccess(result: EnhanceResult): void {
+    if (this.save.activeMissionId === 'enhance-50') {
+      this.save.activeMissionProgress += 1;
+    } else if (this.save.activeMissionId === 'level-up-10' && result.kind === 'success') {
+      this.save.activeMissionProgress += result.to - result.from;
+    } else if (this.save.activeMissionId === 'critical-5' && result.kind === 'success'
+      && (result.modifier === 'critical' || result.modifier === 'mega')) {
+      this.save.activeMissionProgress += 1;
+    }
+  }
+
+  /** 작은 ticker 메시지 (화면 상단에서 fade). 마일스톤보다 가벼움. */
+  private flashTickerText(text: string): void {
+    const t = this.add
+      .text(GAME_WIDTH / 2, 350, text, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '20px',
+        color: '#ffd23f',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(180)
+      .setAlpha(0);
+    this.tweens.add({
+      targets: t,
+      alpha: 1,
+      y: 320,
+      duration: 200,
+      onComplete: () => {
+        this.time.delayedCall(1500, () => {
+          this.tweens.add({
+            targets: t,
+            alpha: 0,
+            duration: 300,
+            onComplete: () => t.destroy(),
+          });
+        });
+      },
+    });
   }
 
   /**
@@ -2035,6 +2257,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshEquipSlots();
     this.refreshTeamSynergy();
     this.refreshPlannerSlots();
+    this.refreshKpiBar();
   }
 
   private refreshTeamSynergy(): void {
@@ -2064,7 +2287,7 @@ export class GameScene extends Phaser.Scene {
     const prestigeStr = this.save.prestige > 0 ? `  · ⭐ ${this.save.prestige}` : '';
     this.goldText.setText(`💰 ${this.fmtGold(this.save.gold)}${prestigeStr}`);
     const baseAmount = regenAmount(this.alive ? this.level : 0);
-    const amount = Math.ceil(baseAmount * this.currentSubMul() * this.prestigeRegenMul() * this.teamRegenMul());
+    const amount = Math.ceil(baseAmount * this.currentSubMul() * this.prestigeRegenMul() * this.teamRegenMul() * this.officeMul());
     this.regenText.setText(`+${this.fmtGold(amount)} / ${REGEN_INTERVAL_MS / 1000}s · 탭하면 통화 전환`);
   }
 
@@ -2856,6 +3079,11 @@ export class GameScene extends Phaser.Scene {
 
   // ============ 명성 (Prestige) ============
 
+  /** L2: 사옥 등급 멀티 (모든 매출에 적용) */
+  private officeMul(): number {
+    return officeMultiplier(this.save.officeTier);
+  }
+
   /** prestige 1 = 자동회복/패시브 ×1.10, 클릭 ×1.15, 본체 강화 +1%p */
   private prestigeRegenMul(): number {
     return 1 + this.save.prestige * 0.1;
@@ -2914,7 +3142,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.alive) return;
     if (this.level < 5) return;
     let reward = Math.ceil(
-      INCOMES.work.reward(this.level) * this.currentAccMul() * this.prestigeClickMul() * this.teamClickMul(),
+      INCOMES.work.reward(this.level) * this.currentAccMul() * this.prestigeClickMul() * this.officeMul() * this.teamClickMul(),
     );
     let isJackpot = false;
     let label = '';
@@ -2972,7 +3200,7 @@ export class GameScene extends Phaser.Scene {
 
     // 자동 출근 누적 (lv 5+)
     if (this.alive && this.level >= 5) {
-      const autoReward = INCOMES.work.reward(this.level) * this.currentAccMul() * this.prestigeClickMul();
+      const autoReward = INCOMES.work.reward(this.level) * this.currentAccMul() * this.prestigeClickMul() * this.officeMul();
       const cycles = Math.floor((elapsedSec * 1000) / this.autoWorkInterval());
       total += Math.floor(autoReward * cycles);
     }
