@@ -114,38 +114,34 @@ export class MenuScene extends Phaser.Scene {
     if (save.prestige > 0) {
       const office = officeTierAt(save.officeTier);
       this.add
-        .text(cx, 240, `⭐ 명성치 ${save.prestige}  ·  ${office.emoji} ${office.name}`, {
+        .text(cx, 235, `⭐ 명성치 ${save.prestige}  ·  ${office.emoji} ${office.name}`, {
           fontFamily: 'Pretendard, sans-serif',
-          fontSize: '20px',
+          fontSize: '18px',
           color: '#ffd23f',
           fontStyle: 'bold',
         })
         .setOrigin(0.5);
     }
-    // L2/L4/L5: 메뉴 상단 우측 작은 액션 버튼 (사옥/가챠/미션)
-    this.buildMetaButtons(cx, 270, save);
-
-    this.add
-      .text(cx, 290, '직군을 고르세요 (탭해서 시작)', {
-        fontFamily: 'Pretendard, sans-serif',
-        fontSize: '22px',
-        color: '#cfd1d4',
-      })
-      .setOrigin(0.5);
+    // L2/L4/L5: 메뉴 상단 우측 작은 액션 버튼 (사옥/가챠/미션 등) — 명성치 라인 아래
+    this.buildMetaButtons(cx, 275, save);
+    // ("직군을 고르세요" 안내 제거 — 화면 공간 확보 + 메타 버튼과 겹침 회피)
 
     const order: JobKey[] = ['planner', 'designer', 'developer'];
     order.forEach((key, i) => {
-      this.makeJobCard(cx, 360 + i * 200, key, save);
+      this.makeJobCard(cx, 380 + i * 200, key, save);
     });
 
     // Phase A~D: 팀 패널 (CEO 승격 후 표시)
     this.buildTeamPanel(cx, 880, save);
 
-    // Phase 4: 프로젝트 출시 버튼 (조건 충족 시 활성)
-    this.buildProjectLaunchButton(cx, GAME_HEIGHT - 130, save);
+    // 팀 패널이 2×6 큰 그리드라 콘텐츠가 화면을 넘어감 → 프로젝트/푸터를 아래로
+    const teamBottom = 880 + 64 + 6 * 64 + 5 * 10 + 30; // 헤더 60 + 6행 셀 + 간격 + 마진
+    const projectY = teamBottom + 60;
+    const footerY = projectY + 110;
+    this.buildProjectLaunchButton(cx, projectY, save);
 
     this.add
-      .text(cx, GAME_HEIGHT - 60, 'v0.2 · 계정 인증 · 클라우드 세이브 · 리더보드', {
+      .text(cx, footerY, 'v0.2 · 계정 인증 · 클라우드 세이브 · 리더보드 · ↑↓로 스크롤', {
         fontFamily: 'Pretendard, sans-serif',
         fontSize: '14px',
         color: '#5f6368',
@@ -155,6 +151,52 @@ export class MenuScene extends Phaser.Scene {
     if (isSupabaseEnabled()) {
       void this.refreshAuthState();
     }
+
+    // 콘텐츠 총 높이 + 여유 → scroll max
+    const contentBottom = footerY + 40;
+    this.menuScrollMaxY = Math.max(0, contentBottom - GAME_HEIGHT);
+    this.setupMenuScroll();
+  }
+
+  // -------- 메뉴 세로 스크롤 (wheel + touch drag) --------
+
+  private menuScrollMaxY = 0; // create() 끝에서 계산
+  private dragStartPointerY: number | null = null;
+  private dragStartScrollY = 0;
+
+  private setupMenuScroll(): void {
+    this.cameras.main.scrollY = 0;
+
+    // 마우스 휠
+    this.input.on(Phaser.Input.Events.POINTER_WHEEL, (_p: Phaser.Input.Pointer, _gos: unknown, _dx: number, dy: number) => {
+      this.applyMenuScroll(dy * 0.5);
+    });
+
+    // 터치/포인터 드래그
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
+      this.dragStartPointerY = p.y;
+      this.dragStartScrollY = this.cameras.main.scrollY;
+    });
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
+      if (this.dragStartPointerY === null || !p.isDown) return;
+      const dy = this.dragStartPointerY - p.y;
+      this.cameras.main.scrollY = Phaser.Math.Clamp(
+        this.dragStartScrollY + dy,
+        0,
+        this.menuScrollMaxY,
+      );
+    });
+    this.input.on(Phaser.Input.Events.POINTER_UP, () => {
+      this.dragStartPointerY = null;
+    });
+  }
+
+  private applyMenuScroll(delta: number): void {
+    this.cameras.main.scrollY = Phaser.Math.Clamp(
+      this.cameras.main.scrollY + delta,
+      0,
+      this.menuScrollMaxY,
+    );
   }
 
   // -------- 상단 버튼 (로그인 상태 / 리더보드) --------
@@ -1028,12 +1070,12 @@ export class MenuScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
-    // 그리드 (4열 × 3행 = 최대 12 슬롯)
-    const cols = 4;
-    const rows = 3;
-    const cellW = 150;
-    const cellH = 48;
-    const gap = 8;
+    // 그리드 (2열 × 6행 = 최대 12 슬롯, 더 넉넉한 셀)
+    const cols = 2;
+    const rows = 6;
+    const cellW = 290;
+    const cellH = 64;
+    const gap = 10;
     const totalW = cols * cellW + (cols - 1) * gap;
     const startX = cx - totalW / 2 + cellW / 2;
     const gridStartY = y + 60;
