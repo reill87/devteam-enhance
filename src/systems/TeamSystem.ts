@@ -5,6 +5,7 @@ import {
   teamRevenuePerTick,
   type TeamMember,
 } from '../data/team';
+import { rdGlobalMultiplier } from '../data/rd';
 import { type SaveData } from './SaveSystem';
 
 /**
@@ -58,9 +59,12 @@ export function runTeamTick(save: SaveData, now: number = Date.now()): TickResul
 
   const memberLevelCap = Math.max(0, ceoBestMax(save) - 2);
 
+  const globalMul = rdGlobalMultiplier(save.rdLevels.global);
   for (let t = 0; t < cappedTicks; t++) {
-    // 매출 (현재 살아있는 팀원만, 명성/출시 보정)
-    result.revenue += teamRevenuePerTick(save.team, save.prestige, save.projectsCompleted);
+    // 매출 (현재 살아있는 팀원만, 명성/출시 + R&D global 보정)
+    result.revenue += Math.round(
+      teamRevenuePerTick(save.team, save.prestige, save.projectsCompleted) * globalMul,
+    );
     // 자동 강화 (TEAM_AUTO_ENHANCE_TICK_MS 기준; 동일 주기라 매 틱)
     if (TEAM_AUTO_ENHANCE_TICK_MS === TEAM_REVENUE_TICK_MS) {
       tryAutoEnhanceAll(save.team, save.prestige, memberLevelCap, result);

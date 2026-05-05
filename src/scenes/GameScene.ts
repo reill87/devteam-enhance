@@ -61,6 +61,7 @@ import {
 import { failPenaltyFor, checkSynergyGate } from '../data/rates';
 import { milestonesReached, type MilestoneDef } from '../data/milestones';
 import { officeMultiplier } from '../data/office';
+import { rdEnhanceBonus, rdOpsMultiplier } from '../data/rd';
 import { COLORS, hex } from '../data/theme';
 import {
   makePanel,
@@ -3331,15 +3332,21 @@ export class GameScene extends Phaser.Scene {
     return officeMultiplier(this.save.officeTier);
   }
 
+  /** R&D: ops 레벨에 비례한 회복/클릭 멀티 (×1.05^level) */
+  private rdOpsMul(): number {
+    return rdOpsMultiplier(this.save.rdLevels.ops);
+  }
+
   /** prestige 1 = 자동회복/패시브 ×1.10, 클릭 ×1.15, 본체 강화 +1%p */
   private prestigeRegenMul(): number {
-    return 1 + this.save.prestige * 0.1;
+    return (1 + this.save.prestige * 0.1) * this.rdOpsMul();
   }
   private prestigeClickMul(): number {
-    return 1 + this.save.prestige * 0.15;
+    return (1 + this.save.prestige * 0.15) * this.rdOpsMul();
   }
   private prestigeRateBonus(): number {
-    return this.save.prestige * 0.01;
+    // R&D enhance도 누적 (단계당 +0.5%p)
+    return this.save.prestige * 0.01 + rdEnhanceBonus(this.save.rdLevels.enhance);
   }
 
   // ============ 팀 시너지 (Phase 3: 5배 강화) ============

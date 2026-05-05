@@ -10,6 +10,7 @@ import {
   type PlannerSlot,
 } from '../data/planner';
 import { MAX_TEAM_SIZE, type TeamMember } from '../data/team';
+import { RD_MAX_LEVEL, emptyRdState, type RdState } from '../data/rd';
 
 const STORAGE_KEY = 'devteam-enhance/save/v3';
 
@@ -93,6 +94,9 @@ export type SaveData = {
   // ============ L6 — 양자 코어 ============
   /** 양자 코어 활성 (lv 800+). 강화 시 50% 확률 ×2. */
   quantumCoreEnabled: boolean;
+
+  // ============ R&D 투자 (영구 부스트, 0~10) ============
+  rdLevels: RdState;
 };
 
 function emptyInventory(): Record<ItemKey, number> {
@@ -192,7 +196,21 @@ export function defaultSave(): SaveData {
     activeMissionProgress: 0,
     completedMissionsCount: 0,
     quantumCoreEnabled: false,
+    rdLevels: emptyRdState(),
   };
+}
+
+function parseRdLevels(raw: unknown): RdState {
+  const out = emptyRdState();
+  if (!raw || typeof raw !== 'object') return out;
+  const r = raw as Record<string, unknown>;
+  const clamp = (v: unknown) => typeof v === 'number' && v >= 0
+    ? Math.min(RD_MAX_LEVEL, Math.floor(v))
+    : 0;
+  out.enhance = clamp(r.enhance);
+  out.ops = clamp(r.ops);
+  out.global = clamp(r.global);
+  return out;
 }
 
 function parseTeam(raw: unknown): TeamMember[] {
@@ -286,7 +304,7 @@ export function loadSave(): SaveData {
       quarterlyKpiTotal: typeof parsed.quarterlyKpiTotal === 'number' && parsed.quarterlyKpiTotal >= 0
         ? parsed.quarterlyKpiTotal : 0,
       officeTier: typeof parsed.officeTier === 'number' && parsed.officeTier >= 0
-        ? Math.min(4, Math.floor(parsed.officeTier)) : 0,
+        ? Math.min(6, Math.floor(parsed.officeTier)) : 0,
       yagunMode: parsed.yagunMode === true,
       worklifeMode: parsed.worklifeMode === true,
       autoEnhanceEnabled: parsed.autoEnhanceEnabled === true,
@@ -300,6 +318,7 @@ export function loadSave(): SaveData {
       completedMissionsCount: typeof parsed.completedMissionsCount === 'number' && parsed.completedMissionsCount >= 0
         ? parsed.completedMissionsCount : 0,
       quantumCoreEnabled: parsed.quantumCoreEnabled === true,
+      rdLevels: parseRdLevels(parsed.rdLevels),
     };
   } catch {
     return defaultSave();

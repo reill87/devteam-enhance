@@ -52,23 +52,43 @@ export const OFFICE_TIERS: readonly OfficeTier[] = [
   },
   {
     tier: 3,
-    name: '다이아 그룹',
-    emoji: '💎',
-    multiplier: 5.0,
-    upgradeCost: 1e16,                     // 1경
-    requiredLevel: 400,
-    bgColor: 0x1e2a4a,
-    unlockMessage: '💎 다이아 그룹 본사 — 모든 매출 ×5',
+    name: '글로벌 기업',
+    emoji: '🌐',
+    multiplier: 4.0,
+    upgradeCost: 2_000_000_000_000_000,    // 2000조
+    requiredLevel: 300,
+    bgColor: 0x1e2240,
+    unlockMessage: '🌐 글로벌 기업 본사 — 모든 매출 ×4.0',
   },
   {
     tier: 4,
+    name: '다국적 그룹',
+    emoji: '🏗',
+    multiplier: 6.0,
+    upgradeCost: 3e16,                     // 30,000조 = 3경
+    requiredLevel: 400,
+    bgColor: 0x202848,
+    unlockMessage: '🏗 다국적 그룹 — 매출 ×6.0',
+  },
+  {
+    tier: 5,
+    name: '다이아 그룹',
+    emoji: '💎',
+    multiplier: 8.0,
+    upgradeCost: 5e17,                     // 50경
+    requiredLevel: 550,
+    bgColor: 0x1e2a4a,
+    unlockMessage: '💎 다이아 그룹 본사 — 매출 ×8.0',
+  },
+  {
+    tier: 6,
     name: '옴니버스',
     emoji: '🌌',
-    multiplier: 10.0,
+    multiplier: 12.0,
     upgradeCost: 1e20,                     // 100경
     requiredLevel: 700,
     bgColor: 0x2a1e4a,
-    unlockMessage: '🌌 옴니버스 회사 — 차원 너머의 사옥. 매출 ×10',
+    unlockMessage: '🌌 옴니버스 회사 — 차원 너머의 사옥. 매출 ×12',
   },
 ];
 

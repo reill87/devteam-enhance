@@ -25,6 +25,13 @@ import {
   PROJECT_SUCCESS_PRESTIGE,
 } from '../data/project';
 import {
+  RD_TRACKS,
+  RD_TRACK_IDS,
+  RD_MAX_LEVEL,
+  rdNextCost,
+  rdGlobalMultiplier,
+} from '../data/rd';
+import {
   teamCapForProjects,
   hireCost,
   fireRefund,
@@ -483,6 +490,15 @@ export class MenuScene extends Phaser.Scene {
         },
       });
     }
+    // R&D 투자 (lv 100+ — 골드 sink 제공)
+    if (aceBest >= 100) {
+      buttons.push({
+        label: '🔬 R&D',
+        color: 0x4ae290,
+        visible: true,
+        onClick: () => this.openRdModal(save),
+      });
+    }
     if (buttons.length === 0) return;
 
     const btnW = 130;
@@ -673,6 +689,111 @@ export class MenuScene extends Phaser.Scene {
       objs.forEach((o) => o.destroy());
       this.scene.restart();
     });
+  }
+
+  // -------- R&D 투자 모달 --------
+
+  private openRdModal(save: SaveData): void {
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2;
+    const objs: Phaser.GameObjects.GameObject[] = [];
+    const overlay = this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.78).setOrigin(0).setDepth(300).setInteractive();
+    objs.push(overlay);
+    const panel = this.add.rectangle(cx, cy, 620, 700, 0x1a1a22).setStrokeStyle(3, 0x4ae290, 0.7).setDepth(301);
+    objs.push(panel);
+
+    const renderTitle = () => {
+      objs.push(this.add.text(cx, cy - 310, '🔬 R&D 투자', {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '28px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(302));
+      objs.push(this.add.text(cx, cy - 275, `보유 ₩${formatCompactWon(save.gold)}`, {
+        fontFamily: 'Pretendard, sans-serif',
+        fontSize: '15px',
+        color: '#ffd23f',
+      }).setOrigin(0.5).setDepth(302));
+    };
+
+    const renderTracks = () => {
+      RD_TRACK_IDS.forEach((id, i) => {
+        const def = RD_TRACKS[id];
+        const lv = save.rdLevels[id];
+        const yy = cy - 200 + i * 160;
+        const card = this.add.rectangle(cx, yy, 540, 140, 0x2a2a32).setStrokeStyle(2, 0x4ae290, 0.5).setDepth(302);
+        objs.push(card);
+        objs.push(this.add.text(cx - 240, yy - 50, `${def.emoji} ${def.label}`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '20px',
+          color: '#ffffff',
+          fontStyle: 'bold',
+        }).setOrigin(0, 0.5).setDepth(303));
+        objs.push(this.add.text(cx - 240, yy - 22, def.desc, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '14px',
+          color: '#cfd1d4',
+        }).setOrigin(0, 0.5).setDepth(303));
+        // 단계 진행도 바
+        const barW = 320;
+        const barH = 14;
+        objs.push(this.add.rectangle(cx - 240 + barW / 2, yy + 8, barW, barH, 0x3a3a44).setStrokeStyle(1, 0xffffff, 0.3).setDepth(303));
+        const ratio = lv / RD_MAX_LEVEL;
+        if (ratio > 0) {
+          objs.push(this.add.rectangle(cx - 240, yy + 8, barW * ratio, barH - 2, 0x4ae290).setOrigin(0, 0.5).setDepth(304));
+        }
+        objs.push(this.add.text(cx - 240 + barW / 2, yy + 8, `${lv}/${RD_MAX_LEVEL}`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '11px',
+          color: '#0e0e12',
+          fontStyle: 'bold',
+        }).setOrigin(0.5).setDepth(305));
+
+        // 다음 비용 / 투자 버튼
+        const nextCost = rdNextCost(id, lv);
+        const isMaxed = nextCost < 0;
+        const canBuy = !isMaxed && save.gold >= nextCost;
+        objs.push(this.add.text(cx - 240, yy + 36, isMaxed ? '✅ 최대 투자 완료' : `다음 ${def.effectPerLevel} · ₩${formatCompactWon(nextCost)}`, {
+          fontFamily: 'Pretendard, sans-serif',
+          fontSize: '13px',
+          color: isMaxed ? '#4ae290' : (canBuy ? '#ffd23f' : '#9aa0a6'),
+        }).setOrigin(0, 0.5).setDepth(303));
+
+        if (!isMaxed) {
+          const btnBg = this.add.rectangle(cx + 200, yy + 8, 100, 50, canBuy ? 0x4ae290 : 0x3a3a44).setStrokeStyle(2, 0xffffff, canBuy ? 0.4 : 0.2).setDepth(303);
+          const btnText = this.add.text(cx + 200, yy + 8, canBuy ? '투자' : '골드 부족', {
+            fontFamily: 'Pretendard, sans-serif',
+            fontSize: canBuy ? '17px' : '13px',
+            color: canBuy ? '#0e0e12' : '#9aa0a6',
+            fontStyle: 'bold',
+          }).setOrigin(0.5).setDepth(304);
+          objs.push(btnBg, btnText);
+          if (canBuy) {
+            btnBg.setInteractive({ useHandCursor: true });
+            btnBg.on('pointerdown', () => {
+              save.gold -= nextCost;
+              save.rdLevels[id] += 1;
+              persistSave(save);
+              objs.forEach((o) => o.destroy());
+              this.openRdModal(save); // 다시 열어 갱신
+            });
+          }
+        }
+      });
+    };
+
+    renderTitle();
+    renderTracks();
+
+    const closeBg = this.add.rectangle(cx, cy + 310, 200, 50, 0x3a3a44).setStrokeStyle(2, 0xffffff, 0.3).setDepth(302);
+    const closeText = this.add.text(cx, cy + 310, '닫기', {
+      fontFamily: 'Pretendard, sans-serif',
+      fontSize: '18px',
+      color: '#ffffff',
+    }).setOrigin(0.5).setDepth(303);
+    objs.push(closeBg, closeText);
+    closeBg.setInteractive({ useHandCursor: true });
+    closeBg.on('pointerdown', () => objs.forEach((o) => o.destroy()));
   }
 
   // -------- 분기 미션 모달 (L5) --------
@@ -881,7 +1002,10 @@ export class MenuScene extends Phaser.Scene {
     // 활성 상태
     const cap = teamCapForProjects(save.projectsCompleted);
     const aliveTeam = save.team.filter((m) => m.alive);
-    const revenue = teamRevenuePerTick(save.team, save.prestige, save.projectsCompleted);
+    const revenue = Math.round(
+      teamRevenuePerTick(save.team, save.prestige, save.projectsCompleted)
+      * rdGlobalMultiplier(save.rdLevels.global),
+    );
     const diversity = diversityMultiplier(save.team);
     const tickSec = TEAM_REVENUE_TICK_MS / 1000;
 
