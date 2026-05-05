@@ -114,7 +114,7 @@ export class MenuScene extends Phaser.Scene {
     if (save.prestige > 0) {
       const office = officeTierAt(save.officeTier);
       this.add
-        .text(cx, 235, `⭐ 명성치 ${save.prestige}  ·  ${office.emoji} ${office.name}`, {
+        .text(cx, 230, `⭐ 명성치 ${save.prestige}  ·  ${office.emoji} ${office.name}`, {
           fontFamily: 'Pretendard, sans-serif',
           fontSize: '18px',
           color: '#ffd23f',
@@ -123,19 +123,19 @@ export class MenuScene extends Phaser.Scene {
         .setOrigin(0.5);
     }
     // L2/L4/L5: 메뉴 상단 우측 작은 액션 버튼 (사옥/가챠/미션 등) — 명성치 라인 아래
-    this.buildMetaButtons(cx, 275, save);
+    this.buildMetaButtons(cx, 265, save);
     // ("직군을 고르세요" 안내 제거 — 화면 공간 확보 + 메타 버튼과 겹침 회피)
 
     const order: JobKey[] = ['planner', 'designer', 'developer'];
     order.forEach((key, i) => {
-      this.makeJobCard(cx, 380 + i * 200, key, save);
+      this.makeJobCard(cx, 420 + i * 200, key, save);
     });
 
-    // Phase A~D: 팀 패널 (CEO 승격 후 표시)
-    this.buildTeamPanel(cx, 880, save);
+    // Phase A~D: 팀 패널 (CEO 승격 후 표시) — 마지막 직군 카드 아래
+    this.buildTeamPanel(cx, 920, save);
 
     // 팀 패널이 2×6 큰 그리드라 콘텐츠가 화면을 넘어감 → 프로젝트/푸터를 아래로
-    const teamBottom = 880 + 64 + 6 * 64 + 5 * 10 + 30; // 헤더 60 + 6행 셀 + 간격 + 마진
+    const teamBottom = 920 + 64 + 6 * 64 + 5 * 10 + 30; // 헤더 60 + 6행 셀 + 간격 + 마진
     const projectY = teamBottom + 60;
     const footerY = projectY + 110;
     this.buildProjectLaunchButton(cx, projectY, save);
