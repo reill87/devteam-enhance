@@ -75,6 +75,9 @@ export function runTeamTick(save: SaveData, now: number = Date.now()): TickResul
 /**
  * 모든 살아있는 팀원에 대해 자동 강화 한 번 시도. 결과는 in-place mutate.
  *
+ * 디자인 방침: **팀원은 안정적 수입원**. 자동 강화 폭사 없음.
+ * 폭사 리스크는 본인(에이스) 직접 강화에서만 발생.
+ *
  * @param prestige CEO 명성치 (성공률 보정)
  * @param levelCap 멤버 도달 가능 최대 단계 (CEO ace - 2)
  */
@@ -86,22 +89,15 @@ function tryAutoEnhanceAll(
 ): void {
   for (const m of team) {
     if (!m.alive) continue;
-    if (m.level >= levelCap) continue; // CEO 보다 너무 높이 못 가게 캡
+    if (m.level >= levelCap) continue; // CEO 추월 방지
     const rate = teamMemberSuccessRate(m.level, prestige);
     if (Math.random() < rate) {
       m.level += 1;
       result.successes.push(m.id);
-    } else {
-      // 실패 — 단계 따라 다른 페널티
-      if (m.level >= 25) {
-        // 폭사
-        m.alive = false;
-        result.destroyed.push(m.id);
-      } else if (m.level >= 15 && Math.random() < 0.3) {
-        // 30% 확률로 단계 -1
-        m.level = Math.max(0, m.level - 1);
-      }
-      // 그 외: 유지
+    } else if (m.level >= 20 && Math.random() < 0.15) {
+      // lv 20+ 실패 시 15% 확률로 단계 -1 (가벼운 페널티)
+      m.level = Math.max(0, m.level - 1);
     }
+    // 폭사 없음. 유지가 기본.
   }
 }
