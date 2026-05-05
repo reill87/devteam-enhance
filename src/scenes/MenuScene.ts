@@ -605,7 +605,7 @@ export class MenuScene extends Phaser.Scene {
         fontSize: '14px',
         color: '#cfd1d4',
       }).setOrigin(0, 0.5).setDepth(303));
-      objs.push(this.add.text(cx - 240, yy + 18, t.upgradeCost > 0 ? `비용 ${formatCompactWon(t.upgradeCost)}원` : '시작 등급', {
+      objs.push(this.add.text(cx - 240, yy + 18, t.upgradeCost > 0 ? `비용 ${fmtGoldKRW(t.upgradeCost)}원` : '시작 등급', {
         fontFamily: 'Pretendard, sans-serif',
         fontSize: '13px',
         color: '#9aa0a6',
@@ -659,7 +659,7 @@ export class MenuScene extends Phaser.Scene {
       color: '#ffffff',
       fontStyle: 'bold',
     }).setOrigin(0.5).setDepth(302));
-    objs.push(this.add.text(cx, cy - 160, `1회 ${formatCompactWon(GACHA_COST)}원`, {
+    objs.push(this.add.text(cx, cy - 160, `1회 ${fmtGoldKRW(GACHA_COST)}원`, {
       fontFamily: 'Pretendard, sans-serif',
       fontSize: '18px',
       color: '#ffd23f',
@@ -752,7 +752,7 @@ export class MenuScene extends Phaser.Scene {
         color: '#ffffff',
         fontStyle: 'bold',
       }).setOrigin(0.5).setDepth(302));
-      objs.push(this.add.text(cx, cy - 275, `보유 ₩${formatCompactWon(save.gold)}`, {
+      objs.push(this.add.text(cx, cy - 275, `보유 ₩${fmtGoldKRW(save.gold)}`, {
         fontFamily: 'Pretendard, sans-serif',
         fontSize: '15px',
         color: '#ffd23f',
@@ -796,7 +796,7 @@ export class MenuScene extends Phaser.Scene {
         const nextCost = rdNextCost(id, lv);
         const isMaxed = nextCost < 0;
         const canBuy = !isMaxed && save.gold >= nextCost;
-        objs.push(this.add.text(cx - 240, yy + 36, isMaxed ? '✅ 최대 투자 완료' : `다음 ${def.effectPerLevel} · ₩${formatCompactWon(nextCost)}`, {
+        objs.push(this.add.text(cx - 240, yy + 36, isMaxed ? '✅ 최대 투자 완료' : `다음 ${def.effectPerLevel} · ₩${fmtGoldKRW(nextCost)}`, {
           fontFamily: 'Pretendard, sans-serif',
           fontSize: '13px',
           color: isMaxed ? '#4ae290' : (canBuy ? '#ffd23f' : '#9aa0a6'),
@@ -988,7 +988,7 @@ export class MenuScene extends Phaser.Scene {
           .setOrigin(0.5)
           .setDepth(312),
         this.add
-          .text(cx, cy + 80, `💰 위로금 -₩${formatCompactWon(consolation)}`, {
+          .text(cx, cy + 80, `💰 위로금 -₩${fmtGoldKRW(consolation)}`, {
             fontFamily: 'Pretendard, sans-serif',
             fontSize: '17px',
             color: '#e2904a',
@@ -1061,7 +1061,7 @@ export class MenuScene extends Phaser.Scene {
         fontStyle: 'bold',
       })
       .setOrigin(0.5);
-    const subParts = [`💰 ₩${formatCompactWon(revenue)}/${tickSec}s`];
+    const subParts = [`💰 ₩${fmtGoldKRW(revenue)}/${tickSec}s`];
     if (diversity > 1) subParts.push(`직군 ×${diversity.toFixed(1)}`);
     this.add
       .text(cx, y + 24, subParts.join('  ·  '), {
@@ -1133,7 +1133,7 @@ export class MenuScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
       this.add
-        .text(x, y + 12, `₩${formatCompactWon(cost)}`, {
+        .text(x, y + 12, `₩${fmtGoldKRW(cost)}`, {
           fontFamily: 'Pretendard, sans-serif',
           fontSize: '12px',
           color: canAfford ? '#dde2ee' : '#5f6368',
@@ -1197,7 +1197,7 @@ export class MenuScene extends Phaser.Scene {
       const tx = GAME_WIDTH / 2;
       const ty = GAME_HEIGHT / 2;
       const t = this.add
-        .text(tx, ty, `골드 부족 — ₩${formatCompactWon(cost)} 필요`, {
+        .text(tx, ty, `골드 부족 — ₩${fmtGoldKRW(cost)} 필요`, {
           fontFamily: 'Pretendard, sans-serif',
           fontSize: '20px',
           color: '#e24a4a',
@@ -1242,7 +1242,7 @@ export class MenuScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setDepth(302),
       this.add
-        .text(cx, cy - 160, `채용 비용  ₩${formatCompactWon(cost)}`, {
+        .text(cx, cy - 160, `채용 비용  ₩${fmtGoldKRW(cost)}`, {
           fontFamily: 'Pretendard, sans-serif',
           fontSize: '18px',
           color: '#ffd23f',
@@ -1364,7 +1364,7 @@ export class MenuScene extends Phaser.Scene {
         .text(
           cx,
           cy - 16,
-          `매출 기여  ₩${formatCompactWon(Math.ceil(memberContribution(member) * companyMultiplier(save.prestige, save.projectsCompleted) * diversityMultiplier(save.team)))}/30s`,
+          `매출 기여  ₩${fmtGoldKRW(Math.ceil(memberContribution(member) * companyMultiplier(save.prestige, save.projectsCompleted) * diversityMultiplier(save.team)))}/30s`,
           {
             fontFamily: 'Pretendard, sans-serif',
             fontSize: '15px',
@@ -1391,7 +1391,7 @@ export class MenuScene extends Phaser.Scene {
       .setStrokeStyle(2, 0xffffff, 0.3)
       .setDepth(302);
     const fireText = this.add
-      .text(cx - 110, cy + 110, `해고  +₩${formatCompactWon(refund)}`, {
+      .text(cx - 110, cy + 110, `해고  +₩${fmtGoldKRW(refund)}`, {
         fontFamily: 'Pretendard, sans-serif',
         fontSize: '15px',
         color: '#ffffff',
@@ -2287,6 +2287,14 @@ function pickAceJob(bestByJob: Record<JobKey, number>): JobKey {
   ];
   entries.sort((a, b) => b[1] - a[1]);
   return entries[0][0];
+}
+
+/**
+ * gold 단위(save.gold나 비용 raw 값)를 KRW로 환산해 한국어 단위 표기.
+ * 항상 ×10000 (RATES.KRW) 적용 후 formatCompactWon에 위임.
+ */
+function fmtGoldKRW(goldAmount: number): string {
+  return formatCompactWon(goldAmount * 10000);
 }
 
 /** 큰 KRW 값 압축 표기 (1234567 → 123만 / 1234567890 → 12.3억). */

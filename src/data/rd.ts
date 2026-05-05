@@ -31,7 +31,7 @@ export const RD_TRACKS: Record<RdTrack, RdTrackDef> = {
     label: '본체 강화 연구',
     desc: '강화 성공률 영구 +0.5%p',
     effectPerLevel: '+0.5%p',
-    baseCost: 30_000_000_000_000,    // 30조
+    baseCost: 3_000_000_000,    // 30조 KRW (gold 단위 ×10000)
   },
   ops: {
     id: 'ops',
@@ -39,7 +39,7 @@ export const RD_TRACKS: Record<RdTrack, RdTrackDef> = {
     label: '운영 자동화',
     desc: '자동 회복/클릭 보상 ×1.05',
     effectPerLevel: '×1.05',
-    baseCost: 50_000_000_000_000,    // 50조
+    baseCost: 5_000_000_000,    // 50조 KRW
   },
   global: {
     id: 'global',
@@ -47,7 +47,7 @@ export const RD_TRACKS: Record<RdTrack, RdTrackDef> = {
     label: '글로벌 확장',
     desc: '팀 매출 ×1.10',
     effectPerLevel: '×1.10',
-    baseCost: 100_000_000_000_000,   // 100조
+    baseCost: 10_000_000_000,   // 100조 KRW
   },
 };
 

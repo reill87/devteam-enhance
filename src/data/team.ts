@@ -186,8 +186,8 @@ export function createMember(jobKey: JobKey, tier: MemberTier = 'normal'): TeamM
 
 // ============ L4 — 헤드헌터 가챠 ============
 
-/** 가챠 1회 비용 (KRW). */
-export const GACHA_COST = 10_000_000_000_000; // 10조
+/** 가챠 1회 비용 (gold 단위 — KRW = ×10000 → 10조원). */
+export const GACHA_COST = 1_000_000_000; // 10조 KRW
 
 /**
  * 가챠 결과 추첨 — 90% normal / 9% senior / 1% legendary

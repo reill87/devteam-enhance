@@ -35,7 +35,7 @@ export const OFFICE_TIERS: readonly OfficeTier[] = [
     name: '중견 기업',
     emoji: '🏢',
     multiplier: 1.5,
-    upgradeCost: 10_000_000_000,           // 100억
+    upgradeCost: 1_000_000,                // 100억 KRW (gold 단위)
     requiredLevel: 50,
     bgColor: 0x141822,
     unlockMessage: '🏢 중견 기업 사옥으로 이전 — 모든 매출 ×1.5',
@@ -45,7 +45,7 @@ export const OFFICE_TIERS: readonly OfficeTier[] = [
     name: '대기업',
     emoji: '🏛',
     multiplier: 2.5,
-    upgradeCost: 50_000_000_000_000,       // 50조
+    upgradeCost: 5_000_000_000,            // 50조 KRW
     requiredLevel: 200,
     bgColor: 0x1a2236,
     unlockMessage: '🏛 대기업 사옥 입주 — 모든 매출 ×2.5',
@@ -55,7 +55,7 @@ export const OFFICE_TIERS: readonly OfficeTier[] = [
     name: '글로벌 기업',
     emoji: '🌐',
     multiplier: 4.0,
-    upgradeCost: 2_000_000_000_000_000,    // 2000조
+    upgradeCost: 200_000_000_000,          // 2000조 KRW
     requiredLevel: 300,
     bgColor: 0x1e2240,
     unlockMessage: '🌐 글로벌 기업 본사 — 모든 매출 ×4.0',
@@ -65,7 +65,7 @@ export const OFFICE_TIERS: readonly OfficeTier[] = [
     name: '다국적 그룹',
     emoji: '🏗',
     multiplier: 6.0,
-    upgradeCost: 3e16,                     // 30,000조 = 3경
+    upgradeCost: 3e12,                     // 3경 KRW
     requiredLevel: 400,
     bgColor: 0x202848,
     unlockMessage: '🏗 다국적 그룹 — 매출 ×6.0',
@@ -75,7 +75,7 @@ export const OFFICE_TIERS: readonly OfficeTier[] = [
     name: '다이아 그룹',
     emoji: '💎',
     multiplier: 8.0,
-    upgradeCost: 5e17,                     // 50경
+    upgradeCost: 5e13,                     // 50경 KRW
     requiredLevel: 550,
     bgColor: 0x1e2a4a,
     unlockMessage: '💎 다이아 그룹 본사 — 매출 ×8.0',
@@ -85,7 +85,7 @@ export const OFFICE_TIERS: readonly OfficeTier[] = [
     name: '옴니버스',
     emoji: '🌌',
     multiplier: 12.0,
-    upgradeCost: 1e20,                     // 100경
+    upgradeCost: 1e16,                     // 100경 KRW
     requiredLevel: 700,
     bgColor: 0x2a1e4a,
     unlockMessage: '🌌 옴니버스 회사 — 차원 너머의 사옥. 매출 ×12',
