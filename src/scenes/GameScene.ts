@@ -2066,44 +2066,30 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** 장비 강화 실패 이펙트 — 어두운 plash + 흔들림 + 파편 */
+  /** 장비 강화 실패 이펙트 — 매우 간소 (실패 자주 → 멀미 방지) */
   private playEquipFailFx(): void {
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT / 2;
     const ringDepth = 320;
-
-    // 어두운 ring
-    const ring = this.add
-      .circle(cx, cy, 60, 0x6a4040, 0)
-      .setStrokeStyle(6, 0xe24a4a, 1)
-      .setDepth(ringDepth);
+    // 작은 회색 X 마커 — 짧게 페이드아웃만
+    const t = this.add
+      .text(cx, cy, '✕', {
+        fontFamily: 'sans-serif',
+        fontSize: '36px',
+        color: '#6a6a6a',
+      })
+      .setOrigin(0.5)
+      .setDepth(ringDepth)
+      .setAlpha(0.7);
     this.tweens.add({
-      targets: ring,
-      radius: 180,
+      targets: t,
       alpha: 0,
+      y: cy - 20,
       duration: 380,
-      onComplete: () => ring.destroy(),
+      ease: 'Quad.easeOut',
+      onComplete: () => t.destroy(),
     });
-
-    // 떨어지는 파편 (실패 분위기)
-    const fragmentCount = 8;
-    for (let i = 0; i < fragmentCount; i++) {
-      const angle = (i / fragmentCount) * Math.PI * 2 - Math.PI / 2; // 위쪽부터
-      const dot = this.add.circle(cx, cy, 4, 0x8a5050, 1).setDepth(ringDepth);
-      this.tweens.add({
-        targets: dot,
-        x: cx + Math.cos(angle) * (60 + Math.random() * 40),
-        y: cy + Math.sin(angle) * (40 + Math.random() * 30) + 60,
-        alpha: 0,
-        duration: 450,
-        ease: 'Quad.easeIn',
-        onComplete: () => dot.destroy(),
-      });
-    }
-
-    // 어두운 플래시 + 흔들림
-    this.cameras.main.flash(150, 80, 30, 30);
-    this.cameras.main.shake(140, 0.004);
+    // 카메라 플래시/셰이크 없음 — 빈도 높은 실패에서 멀미 방지
   }
 
   // -------- 결과 이펙트 --------
