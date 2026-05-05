@@ -1889,44 +1889,109 @@ export class GameScene extends Phaser.Scene {
 
   // -------- 장비 강화 이펙트 (슬롯별 차별화) --------
 
-  /** 장비 강화 성공 이펙트 — 슬롯 색상 + 크리티컬 시 화면 플래시 */
+  /** 장비 강화 성공 이펙트 — 슬롯 색상 ring + 파티클 폭발 + 카메라 플래시 */
   private playEquipSuccessFx(slot: EquipSlot, isCrit: boolean): void {
     const color = SLOT_EFFECT_COLOR[slot];
     const cx = GAME_WIDTH / 2;
-    const cy = 720;
+    const cy = GAME_HEIGHT / 2;
+    const ringDepth = 320;
+
+    // 1) 외부 ring (슬롯 색)
     const ring = this.add
-      .circle(cx, cy, 60, color, 0)
-      .setStrokeStyle(8, color, 1)
-      .setDepth(282);
+      .circle(cx, cy, 80, color, 0)
+      .setStrokeStyle(10, color, 1)
+      .setDepth(ringDepth);
     this.tweens.add({
       targets: ring,
-      radius: isCrit ? 320 : 200,
+      radius: isCrit ? 420 : 260,
       alpha: 0,
-      duration: isCrit ? 700 : 500,
+      duration: isCrit ? 800 : 500,
       ease: 'Quart.easeOut',
       onComplete: () => ring.destroy(),
     });
-    this.cameras.main.flash(isCrit ? 280 : 140, ((color >> 16) & 0xff), ((color >> 8) & 0xff), color & 0xff);
+
+    // 2) 크리티컬용 두 번째 골드 ring
     if (isCrit) {
-      this.cameras.main.shake(180, 0.005);
+      const ring2 = this.add
+        .circle(cx, cy, 50, 0xffd23f, 0)
+        .setStrokeStyle(6, 0xffd23f, 1)
+        .setDepth(ringDepth);
+      this.tweens.add({
+        targets: ring2,
+        radius: 320,
+        alpha: 0,
+        duration: 700,
+        ease: 'Quart.easeOut',
+        onComplete: () => ring2.destroy(),
+      });
     }
+
+    // 3) 사방으로 퍼지는 파티클 (12개 외부 ↔ 24개 크리티컬)
+    const particleCount = isCrit ? 24 : 12;
+    for (let i = 0; i < particleCount; i++) {
+      const angle = (i / particleCount) * Math.PI * 2;
+      const startX = cx;
+      const startY = cy;
+      const distance = isCrit ? 320 + Math.random() * 60 : 200 + Math.random() * 40;
+      const dotColor = isCrit && i % 2 === 0 ? 0xffd23f : color;
+      const dot = this.add.circle(startX, startY, isCrit ? 8 : 6, dotColor, 1).setDepth(ringDepth);
+      this.tweens.add({
+        targets: dot,
+        x: startX + Math.cos(angle) * distance,
+        y: startY + Math.sin(angle) * distance,
+        alpha: 0,
+        duration: isCrit ? 700 : 500,
+        ease: 'Quart.easeOut',
+        onComplete: () => dot.destroy(),
+      });
+    }
+
+    // 4) 카메라 플래시 + 흔들림
+    const r = (color >> 16) & 0xff;
+    const g = (color >> 8) & 0xff;
+    const b = color & 0xff;
+    this.cameras.main.flash(isCrit ? 320 : 180, r, g, b);
+    this.cameras.main.shake(isCrit ? 240 : 100, isCrit ? 0.008 : 0.003);
   }
 
-  /** 장비 강화 실패 이펙트 — 회색 단조롭게 */
+  /** 장비 강화 실패 이펙트 — 어두운 plash + 흔들림 + 파편 */
   private playEquipFailFx(): void {
     const cx = GAME_WIDTH / 2;
-    const cy = 720;
+    const cy = GAME_HEIGHT / 2;
+    const ringDepth = 320;
+
+    // 어두운 ring
     const ring = this.add
-      .circle(cx, cy, 40, 0x5a5a5a, 0)
-      .setStrokeStyle(4, 0x5a5a5a, 1)
-      .setDepth(282);
+      .circle(cx, cy, 60, 0x6a4040, 0)
+      .setStrokeStyle(6, 0xe24a4a, 1)
+      .setDepth(ringDepth);
     this.tweens.add({
       targets: ring,
-      radius: 100,
+      radius: 180,
       alpha: 0,
-      duration: 320,
+      duration: 380,
       onComplete: () => ring.destroy(),
     });
+
+    // 떨어지는 파편 (실패 분위기)
+    const fragmentCount = 8;
+    for (let i = 0; i < fragmentCount; i++) {
+      const angle = (i / fragmentCount) * Math.PI * 2 - Math.PI / 2; // 위쪽부터
+      const dot = this.add.circle(cx, cy, 4, 0x8a5050, 1).setDepth(ringDepth);
+      this.tweens.add({
+        targets: dot,
+        x: cx + Math.cos(angle) * (60 + Math.random() * 40),
+        y: cy + Math.sin(angle) * (40 + Math.random() * 30) + 60,
+        alpha: 0,
+        duration: 450,
+        ease: 'Quad.easeIn',
+        onComplete: () => dot.destroy(),
+      });
+    }
+
+    // 어두운 플래시 + 흔들림
+    this.cameras.main.flash(150, 80, 30, 30);
+    this.cameras.main.shake(140, 0.004);
   }
 
   // -------- 결과 이펙트 --------
