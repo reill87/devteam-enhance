@@ -1643,11 +1643,8 @@ export class MenuScene extends Phaser.Scene {
       persistSave(save);
       okBg.disableInteractive();
       cancelText.setText('닫기');
-      // 모달 닫고 메뉴 다시 그림 (시너지/버튼 갱신)
-      this.time.delayedCall(2200, () => {
-        close();
-        this.scene.restart();
-      });
+      // 자동 닫힘 제거 — 성공 컷인이 짧아서 실패처럼 느껴졌음.
+      // 사용자가 직접 "닫기"를 눌러 메뉴로 복귀 (cancelBg 핸들러에서 restart).
     });
     cancelBg.setInteractive({ useHandCursor: true });
     cancelBg.on('pointerdown', () => {

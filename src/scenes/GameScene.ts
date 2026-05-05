@@ -1356,8 +1356,8 @@ export class GameScene extends Phaser.Scene {
       this.refreshPlannerSlots();
       return;
     }
-    // 슬롯 시작 시 이미 cost 차감했으므로 0 cost로 강화 진행 + 보너스 +1단계
-    this.plannerSlotBonus = 1;
+    // 슬롯 시작 시 이미 cost 차감 → 0 cost로 강화 진행. 보너스 +2단계 (총 +3).
+    this.plannerSlotBonus = 2;
     this.startEnhancement(0);
   }
 
