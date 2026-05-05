@@ -27,6 +27,17 @@ export type TickResult = {
 };
 
 /**
+ * CEO best level 중 최댓값. 멤버 레벨 캡(ace - 2)에 사용.
+ */
+function ceoBestMax(save: SaveData): number {
+  return Math.max(
+    save.bestByJob.developer,
+    save.bestByJob.planner,
+    save.bestByJob.designer,
+  );
+}
+
+/**
  * 팀 시스템을 한 번 진행 — `save`를 직접 mutate.
  * 호출 후 caller가 persistSave(save) + UI refresh.
  */
@@ -43,13 +54,16 @@ export function runTeamTick(save: SaveData, now: number = Date.now()): TickResul
   if (ticks <= 0) return result;
   // offline 누적 캡: 최대 8시간 = 960 ticks (30초 기준)
   const cappedTicks = Math.min(ticks, 8 * 3600 * 1000 / tickInterval);
+  result.ticks = cappedTicks;
+
+  const memberLevelCap = Math.max(0, ceoBestMax(save) - 2);
 
   for (let t = 0; t < cappedTicks; t++) {
-    // 매출 (현재 살아있는 팀원만)
-    result.revenue += teamRevenuePerTick(save.team);
+    // 매출 (현재 살아있는 팀원만, 명성/출시 보정)
+    result.revenue += teamRevenuePerTick(save.team, save.prestige, save.projectsCompleted);
     // 자동 강화 (TEAM_AUTO_ENHANCE_TICK_MS 기준; 동일 주기라 매 틱)
     if (TEAM_AUTO_ENHANCE_TICK_MS === TEAM_REVENUE_TICK_MS) {
-      tryAutoEnhanceAll(save.team, result);
+      tryAutoEnhanceAll(save.team, save.prestige, memberLevelCap, result);
     }
   }
 
@@ -60,11 +74,20 @@ export function runTeamTick(save: SaveData, now: number = Date.now()): TickResul
 
 /**
  * 모든 살아있는 팀원에 대해 자동 강화 한 번 시도. 결과는 in-place mutate.
+ *
+ * @param prestige CEO 명성치 (성공률 보정)
+ * @param levelCap 멤버 도달 가능 최대 단계 (CEO ace - 2)
  */
-function tryAutoEnhanceAll(team: TeamMember[], result: TickResult): void {
+function tryAutoEnhanceAll(
+  team: TeamMember[],
+  prestige: number,
+  levelCap: number,
+  result: TickResult,
+): void {
   for (const m of team) {
     if (!m.alive) continue;
-    const rate = teamMemberSuccessRate(m.level);
+    if (m.level >= levelCap) continue; // CEO 보다 너무 높이 못 가게 캡
+    const rate = teamMemberSuccessRate(m.level, prestige);
     if (Math.random() < rate) {
       m.level += 1;
       result.successes.push(m.id);

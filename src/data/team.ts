@@ -52,48 +52,66 @@ export const TEAM_AUTO_ENHANCE_TICK_MS = 30_000;
 
 /**
  * 직군 다양성 보너스 — 보유 직군 수에 따른 매출 ×.
- *  1직군 = 1.0 / 2직군 = 1.3 / 3직군 = 2.0
+ *  1직군 = 1.0 / 2직군 = 1.5 / 3직군 = 2.5
  */
 export function diversityMultiplier(team: TeamMember[]): number {
   const aliveJobs = new Set(team.filter((m) => m.alive).map((m) => m.jobKey));
   switch (aliveJobs.size) {
     case 0: return 0;
     case 1: return 1.0;
-    case 2: return 1.3;
-    case 3: return 2.0;
-    default: return 2.0;
+    case 2: return 1.5;
+    case 3: return 2.5;
+    default: return 2.5;
   }
 }
 
 /**
- * 팀원 한 명의 매출 기여 (틱당) — `(level+1)^1.4 × 5`.
+ * 팀원 한 명의 기본 매출 기여 (틱당) — `(level+1)^1.5 × 50`.
+ * 회사 운영 부스트(prestige/projects)는 별도 곱셈 처리.
  * 죽은 멤버는 0 기여.
  */
 export function memberContribution(member: TeamMember): number {
   if (!member.alive) return 0;
-  return Math.ceil(Math.pow(member.level + 1, 1.4) * 5);
+  return Math.ceil(Math.pow(member.level + 1, 1.5) * 50);
 }
 
 /**
- * 팀 전체 매출 (틱당) = ∑ 멤버 기여 × 다양성 보너스.
+ * 회사 운영 멀티플라이어 — 명성치와 출시 횟수가 누적해 회사 가치 ↑.
+ *  prestige 0/projects 1: ×1.3
+ *  prestige 50/projects 5: ×6 × 2.5 = ×15
+ *  prestige 100/projects 10: ×11 × 4 = ×44
  */
-export function teamRevenuePerTick(team: TeamMember[]): number {
+export function companyMultiplier(prestige: number, projectsCompleted: number): number {
+  return (1 + prestige * 0.1) * (1 + projectsCompleted * 0.3);
+}
+
+/**
+ * 팀 전체 매출 (틱당) = ∑ 멤버 기여 × 다양성 × 회사 운영 멀티.
+ */
+export function teamRevenuePerTick(
+  team: TeamMember[],
+  prestige: number,
+  projectsCompleted: number,
+): number {
   if (team.length === 0) return 0;
   const sum = team.reduce((acc, m) => acc + memberContribution(m), 0);
-  return Math.round(sum * diversityMultiplier(team));
+  const mul = diversityMultiplier(team) * companyMultiplier(prestige, projectsCompleted);
+  return Math.round(sum * mul);
 }
 
 /**
- * 팀원의 자동 강화 성공률 — 본인 단계의 일반 RATES 기반에 약간 보정.
- * Phase 1A의 직군 비대칭은 적용 안 함 (UI 단순화).
+ * 팀원의 자동 강화 성공률.
+ * - base 곡선: lv 0=95%, lv 10=60%, lv 20=20%, lv 30=8%
+ * - 명성치 보너스: prestige × 0.5%p, 캡 +50%p (CEO 명성 ↑ → 직원 성장 ↑)
  */
-export function teamMemberSuccessRate(level: number): number {
-  // 본인 단계가 낮으면 거의 성공, 높을수록 어려움.
-  // base curve: lv 0→1: 95%, lv 10: 50%, lv 20: 20%, lv 30: 8%
-  if (level >= 30) return 0.06;
-  if (level >= 20) return Math.max(0.10, 0.50 - (level - 10) * 0.04);
-  if (level >= 10) return Math.max(0.30, 0.95 - (level - 5) * 0.07);
-  return Math.max(0.60, 0.95 - level * 0.05);
+export function teamMemberSuccessRate(level: number, prestige: number = 0): number {
+  let base: number;
+  if (level >= 30) base = 0.06;
+  else if (level >= 20) base = Math.max(0.10, 0.50 - (level - 10) * 0.04);
+  else if (level >= 10) base = Math.max(0.30, 0.95 - (level - 5) * 0.07);
+  else base = Math.max(0.60, 0.95 - level * 0.05);
+  const prestigeBoost = Math.min(0.5, prestige * 0.005);
+  return Math.min(0.99, base + prestigeBoost);
 }
 
 // ============ 이름 풀 ============

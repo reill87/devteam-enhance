@@ -32,6 +32,8 @@ import {
   teamRevenuePerTick,
   createMember,
   pickAutoHireJob,
+  memberContribution,
+  companyMultiplier,
   TEAM_REVENUE_TICK_MS,
   MAX_TEAM_SIZE,
   type TeamMember,
@@ -524,7 +526,7 @@ export class MenuScene extends Phaser.Scene {
     // 활성 상태
     const cap = teamCapForProjects(save.projectsCompleted);
     const aliveTeam = save.team.filter((m) => m.alive);
-    const revenue = teamRevenuePerTick(save.team);
+    const revenue = teamRevenuePerTick(save.team, save.prestige, save.projectsCompleted);
     const diversity = diversityMultiplier(save.team);
     const tickSec = TEAM_REVENUE_TICK_MS / 1000;
 
@@ -827,11 +829,16 @@ export class MenuScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setDepth(302),
       this.add
-        .text(cx, cy - 16, `매출 기여  ₩${formatCompactWon(Math.ceil(Math.pow(member.level + 1, 1.4) * 5))}/30s`, {
-          fontFamily: 'Pretendard, sans-serif',
-          fontSize: '15px',
-          color: '#9af0a8',
-        })
+        .text(
+          cx,
+          cy - 16,
+          `매출 기여  ₩${formatCompactWon(Math.ceil(memberContribution(member) * companyMultiplier(save.prestige, save.projectsCompleted) * diversityMultiplier(save.team)))}/30s`,
+          {
+            fontFamily: 'Pretendard, sans-serif',
+            fontSize: '15px',
+            color: '#9af0a8',
+          },
+        )
         .setOrigin(0.5)
         .setDepth(302),
       this.add
